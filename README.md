@@ -4,26 +4,24 @@ This repository contains a monorepo of the critical infrastructure powering SAM,
 
 ## The path diverges ahead:
 
-This 
+The infrastructure is broken into microservices, which roughly map to directories in this folder:
 
-### [/bifrost/](/bifrost/) - **Bifrost**
+### [/bifrost/](/bifrost/) - **Bifrost** - Unimplemented
 The bridge to reality. A microservice run at all local sites, meant to bridge local network access and expose the real world to the network. Apollo GraphQL server.
 
-### [/graff/](/graff/) - **Graff**
+### [/graff/](/graff/) - **Graff** - Unimplemented
 The knowledge graph. This is a graphql server meant to provide internal read/writable access to known truth for safe network clients. Prisma managed RDS database.
 
-### [/nexus/](/nexus/) - **Nexus**
+### [/nexus/](/nexus/) - **Nexus** - Unimplemented
 The hub of all networks. Guarddog and pathfinder, a graphql federation server that assembles and protects a singular exposed supergraph.
 
-### [/sam/](/sam/) - **SAM**
+### [/sam/](/sam/) - **SAM** - Unimplemented
 Secure, Assure, Mitigate. Natural language interface for the network, providing wake word functionality, authentication, and managed access to the network.
 
-### [/viola/](/viola/) - **Viola**
+### [/viola/](/viola/) - **Viola** - Unimplemented
 The improvisation engine. While SAM is capable of responding to user-triggered requests, Viola is a neural-network-driven daemon, actively seeking possible actions.
 
 ## You find a Map:
-
-Don't forget to close the image tag.
 
 ![Alt text](https://g.gravizo.com/source/svg/custom_mark10?https%3A%2F%2Fraw.githubusercontent.com%2FGraffAI%2Faubron%2Fmain%2FREADME.md)
 <details> 
