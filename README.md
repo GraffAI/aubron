@@ -25,4 +25,42 @@ The improvisation engine. While SAM is capable of responding to user-triggered r
 
 Don't forget to close the image tag.
 
-![Infrastructure Map](https://g.gravizo.com/source/svg/startgraph?https://raw.githubusercontent.com/GraffAI/aubron/main/infrastructure.graphviz)
+![Alt text](https://g.gravizo.com/source/svg/custom_mark10?https%3A%2F%2Fraw.githubusercontent.com%2FGraffAI%2Faubron%2Fmain%2FREADME.md)
+<details> 
+<summary></summary>
+custom_mark10
+digraph G {
+
+  subgraph cluster_0 {
+    style=filled;
+    color=lightgrey;
+    node [style=filled,color=white];
+    Bifrost0;
+    Bifrost1;
+    label = "Bifrost Sites";
+  }
+
+  subgraph cluster_1 {
+    style=filled;
+    color=lightgrey;
+    node [style=filled,color=white];
+    Graff;
+    Nexus;
+    label = "AWS Services";
+  }
+
+  SAM -> Nexus, Viola;
+  Nexus -> Graff [label="Prisma Client"];
+  Nexus -> Bifrost0, Bifrost1 [label="Apollo Federation"];
+  Viola -> SAM [label="Preemptive actions"];
+  
+
+  SAM [shape=Square];
+  Nexus;
+  Viola;
+  Bifrost0 [label="Bifrost (Shop)"];
+  Bifrost1 [label="Bifrost (Home)"];
+  Graff;
+}
+custom_mark10
+</details>
