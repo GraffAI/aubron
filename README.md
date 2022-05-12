@@ -23,4 +23,6 @@ The improvisation engine. While SAM is capable of responding to user-triggered r
 
 ## You find a Map:
 
-![Infrastructure Map](https://g.gravizo.com/source/custom_mark21)
+Don't forget to close the image tag.
+
+![Infrastructure Map](https://g.gravizo.com/source/svg/startgraph?https://raw.githubusercontent.com/GraffAI/aubron/main/infrastructure.graphviz)

@@ -1,3 +1,4 @@
+startgraph
 digraph G {
 
   subgraph cluster_0 {
@@ -31,3 +32,4 @@ digraph G {
   Bifrost1 [label="Bifrost (Home)"];
   Graff;
 }
+startgraph
