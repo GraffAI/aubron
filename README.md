@@ -6,9 +6,6 @@ This repository contains a monorepo of the critical infrastructure powering SAM,
 
 The infrastructure is broken into microservices, which roughly map to directories in this folder:
 
-### [/bifrost/](/bifrost/) - **Bifrost** - Unimplemented
-The bridge to reality. A microservice run at all local sites, meant to bridge local network access and expose the real world to the network. Apollo GraphQL server.
-
 ### [/graff/](/graff/) - **Graff** - Unimplemented
 The knowledge graph. This is a graphql server meant to provide internal read/writable access to known truth for safe network clients. Prisma managed RDS database.
 
@@ -20,6 +17,9 @@ Secure, Assure, Mitigate. Natural language interface for the network, providing 
 
 ### [/viola/](/viola/) - **Viola** - Unimplemented
 The improvisation engine. While SAM is capable of responding to user-triggered requests, Viola is a neural-network-driven daemon, actively seeking possible actions.
+
+### [/waystone/](/waystone/) - **Waystones** - Unimplemented
+The bridge to reality. A microservice run at all local sites, meant to bridge local network access and expose the real world to the network. Apollo GraphQL server.
 
 ## You find a Map:
 
@@ -33,9 +33,9 @@ digraph G {
     style=filled;
     color=lightgrey;
     node [style=filled,color=white];
-    Bifrost0;
-    Bifrost1;
-    label = "Bifrost Sites";
+    Waystone0;
+    Waystone1;
+    label = "Local Sites";
   }
 
   subgraph cluster_1 {
@@ -46,18 +46,29 @@ digraph G {
     Nexus;
     label = "AWS Services";
   }
+  
 
   SAM -> Nexus, Viola;
+  SAM -> CloudTTS [label="Speech Synthesis"];
+  CloudTTS -> CloudAI [label="Unknown intent extraction"];
+  CloudTTS -> Viola [label="Improvise failed response"];
+  Viola -> OpenAI [label="Text generation"]
+  SAM -> Picovoice [label="Wake word, Known intents"];
   Nexus -> Graff [label="Prisma Client"];
-  Nexus -> Bifrost0, Bifrost1 [label="Apollo Federation"];
+  Nexus -> Waystone0, Waystone1 [label="Apollo Federation"];
   Viola -> SAM [label="Preemptive actions"];
   
 
   SAM [shape=Square];
+  CloudTTS [label="Cloud Wavenet"];
+  Picovoice;
+  CloudSpeech [label="Cloud Speech-to-Text"];
+  CloudAI [label="Cloud Natural Language"];
+  OpenAI;
   Nexus;
   Viola;
-  Bifrost0 [label="Bifrost (Shop)"];
-  Bifrost1 [label="Bifrost (Home)"];
+  Waystone0 [label="Waystone (Shop)"];
+  Waystone1 [label="Waystone (Home)"];
   Graff;
 }
 custom_mark10
