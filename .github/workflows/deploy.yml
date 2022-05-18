@@ -17,6 +17,7 @@ jobs:
       - run: npm install
   Prisma-Generate:
     runs-on: ubuntu-latest
-    working-directory: graff
     steps:
-      - run: npx --yes prisma generate
+      - run:
+        working-directory: graff
+        command: npx --yes prisma generate
