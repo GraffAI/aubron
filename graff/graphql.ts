@@ -4,10 +4,22 @@ const { ApolloServer, gql } = require('apollo-server-lambda');
 import { PrismaClient } from '@prisma/client'
 const prisma = new PrismaClient();
 // Construct a schema, using GraphQL schema language
+// TODO: Figure out how to use prisma types here where useful.
 const typeDefs = gql`
   type Query {
     hello: String
-    test: String
+    users: [User]!
+  }
+
+  type User {
+    id: String!
+    email: String
+    type: USER_TYPE!
+  }
+
+  enum USER_TYPE {
+    USER
+    ADMIN
   }
 `;
 
@@ -15,10 +27,7 @@ const typeDefs = gql`
 const resolvers = {
   Query: {
     hello: () => 'Hello world!',
-    test: async () => {
-      console.log(await prisma.user.findMany());
-      return 'ha';
-    }
+    users: () => prisma.user.findMany()
   },
 };
 
