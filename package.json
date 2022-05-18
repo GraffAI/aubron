@@ -1,10 +1,6 @@
 {
     "name": "aubron-packages",
-    "workspaces": [
-        "graff"
-    ],
     "scripts": {
-        "branch": "node ./branch.js",
         "database:prod": "pscale connect aubron main",
         "database:dev": "pscale connect aubron aubron",
         "database:list": "pscale deploy-request list aubron aubron",
@@ -17,6 +13,5 @@
     },
     "prisma": {
         "schema": "graff/schema.prisma"
-    },
-    "type": "module"
+    }
 }
