@@ -1,6 +1,13 @@
 {
     "name": "aubron-packages",
     "workspaces": [
-      "graff"
-    ]
-  }
+        "graff"
+    ],
+    "scripts": {
+        "branch": "node ./branch.js"
+    },
+    "dependencies": {
+        "chalk": "^5.0.1"
+    },
+    "type": "module"
+}

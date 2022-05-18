@@ -23,53 +23,28 @@ The bridge to reality. A microservice run at all local sites, meant to bridge lo
 
 ## You find a Map:
 
-![Alt text](https://g.gravizo.com/source/svg/custom_mark10?https%3A%2F%2Fraw.githubusercontent.com%2FGraffAI%2Faubron%2Fmain%2FREADME.md)
-<details> 
-<summary></summary>
-custom_mark10
-digraph G {
-
-  subgraph cluster_0 {
-    style=filled;
-    color=lightgrey;
-    node [style=filled,color=white];
-    Waystone0;
-    Waystone1;
-    label = "Local Sites";
-  }
-
-  subgraph cluster_1 {
-    style=filled;
-    color=lightgrey;
-    node [style=filled,color=white];
-    Graff;
-    Nexus;
-    label = "AWS Services";
-  }
-  
-
-  SAM -> Nexus, Viola;
-  SAM -> CloudTTS [label="Speech Synthesis"];
-  CloudTTS -> CloudAI [label="Unknown intent extraction"];
-  CloudTTS -> Viola [label="Improvise failed response"];
-  Viola -> OpenAI [label="Text generation"]
-  SAM -> Picovoice [label="Wake word, Known intents"];
-  Nexus -> Graff [label="Prisma Client"];
-  Nexus -> Waystone0, Waystone1 [label="Apollo Federation"];
-  Viola -> SAM [label="Preemptive actions"];
-  
-
-  SAM [shape=Square];
-  CloudTTS [label="Cloud Wavenet"];
-  Picovoice;
-  CloudSpeech [label="Cloud Speech-to-Text"];
-  CloudAI [label="Cloud Natural Language"];
-  OpenAI;
-  Nexus;
-  Viola;
-  Waystone0 [label="Waystone (Shop)"];
-  Waystone1 [label="Waystone (Home)"];
-  Graff;
-}
-custom_mark10
-</details>
+```mermaid
+flowchart TD
+  subgraph Local Device
+    SAM{{SAM Client}}
+  end
+  subgraph Cloud Services
+    Graff{{Graff}}
+    Viola{{Viola}}
+    Nexus{{Nexus}}
+    CloudTTS[[Cloud Wavenet Synthesis]]
+    CloudNL[[Cloud Natural Language]]
+  end
+  subgraph On Prem Site
+    Waystone{{Waystone}} --> localDevices((Various Local Devices<br>State, Interaction))
+  end
+    SAM --GraphQL Queries--> Nexus
+    Nexus --GraphQL/Prisma--> Graff
+    Nexus --Apollo Federation--> Waystone
+    Nexus --Speech Synthesis--> CloudTTS 
+    Nexus --Unknown Intent Extraction-->CloudNL
+    Nexus --Improvise Failures --> Viola
+    Viola <--Improvisation Synthesis-->CloudTTS
+    CloudNL --Improvise Contextually--> Viola
+    Viola --> OpenAI[[OpenAI API]]
+```

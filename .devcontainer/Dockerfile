@@ -14,8 +14,8 @@ FROM mcr.microsoft.com/vscode/devcontainers/javascript-node:0-${VARIANT}
 
 
 # Add pscale cli
-RUN curl -sLO https://github.com/planetscale/cli/releases/download/v0.94.0/pscale_0.94.0_linux_amd64.deb && su "dpkg -i pscale_0.94.0_linux_amd64.deb"
-
+RUN curl -sLO https://github.com/planetscale/cli/releases/download/v0.94.0/pscale_0.94.0_linux_amd64.deb
+RUN dpkg -i ./pscale_0.94.0_linux_amd64.deb
 
 # [Optional] Uncomment if you want to install more global node modules
 RUN su node -c "npm install -g prisma "
