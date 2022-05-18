@@ -1,0 +1,24 @@
+service: graff-server
+frameworkVersion: '3'
+
+plugins:
+  - serverless-plugin-monorepo
+  - serverless-plugin-typescript
+
+provider:
+  name: aws
+  runtime: nodejs14.x
+
+functions:
+  graphql:
+    handler: graphql.graphqlHandler
+    url:
+      cors:
+        allowCredentials: true
+        allowedMethods:
+          - GET
+          - POST
+    events:
+      - httpApi:
+          path: /
+          method: any

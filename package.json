@@ -4,10 +4,19 @@
         "graff"
     ],
     "scripts": {
-        "branch": "node ./branch.js"
+        "branch": "node ./branch.js",
+        "database:prod": "pscale connect aubron main",
+        "database:dev": "pscale connect aubron aubron",
+        "database:list": "pscale deploy-request list aubron aubron",
+        "database:request": "pscale deploy-request create aubron aubron",
+        "database:deploy": "pscale deploy-request deploy aubron",
+        "database:close": "pscale deploy-request close aubron"
     },
     "dependencies": {
         "chalk": "^5.0.1"
+    },
+    "prisma": {
+        "schema": "graff/schema.prisma"
     },
     "type": "module"
 }

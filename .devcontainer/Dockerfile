@@ -18,4 +18,4 @@ RUN curl -sLO https://github.com/planetscale/cli/releases/download/v0.94.0/pscal
 RUN dpkg -i ./pscale_0.94.0_linux_amd64.deb
 
 # [Optional] Uncomment if you want to install more global node modules
-RUN su node -c "npm install -g prisma "
+RUN su node -c "npm install -g prisma serverless"
