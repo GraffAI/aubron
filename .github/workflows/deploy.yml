@@ -18,9 +18,10 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ~/.npm
-          key: npm-${{ hashFiles('package-lock.json') }}
-          restore-keys: npm-
+          key: graff-npm-${{ hashFiles('graff/package-lock.json') }}
+          restore-keys: graff-npm-
       - run: npm install
+        working-directory: ./graff
       - name: Generate prisma client
         run: npx --yes prisma generate
         working-directory: ./graff
@@ -30,4 +31,5 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 

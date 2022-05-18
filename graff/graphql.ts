@@ -15,8 +15,8 @@ const typeDefs = gql`
 const resolvers = {
   Query: {
     hello: () => 'Hello world!',
-    test: () => {
-      console.log(prisma.user.findMany());
+    test: async () => {
+      console.log(await prisma.user.findMany());
       return 'ha';
     }
   },

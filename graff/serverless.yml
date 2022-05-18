@@ -2,10 +2,11 @@ service: graff-server
 frameworkVersion: '3'
 
 plugins:
-  - serverless-plugin-typescript
+  - serverless-esbuild
 
 package:
   patterns:
+    - 'node_modules/.prisma/client/**'
     - '!node_modules/.prisma/client/libquery_engine-*'
     - 'node_modules/.prisma/client/libquery_engine-rhel-*'
     - '!node_modules/prisma/libquery_engine-*'
@@ -19,6 +20,8 @@ provider:
 functions:
   interface:
     handler: graphql.graphqlHandler
+    environment:
+      DATABASE_URL: ${env:DATABASE_URL}
     events:
       - httpApi:
           path: /
