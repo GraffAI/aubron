@@ -20,7 +20,7 @@ The hub of all networks. Guarddog and pathfinder, a graphql federation server th
 Secure, Assure, Mitigate. Natural language interface for the network, providing wake word functionality, authentication, and managed access to the network.
 
 #### [/viola/](/viola/) - **Viola**
-The improvisation engine. While SAM is capable of responding to user-triggered requests, Viola is a neural-network-driven daemon, actively seeking possible actions.
+The improvisation engine. While SAM is capable of responding to user-triggered requests, Viola is a neural-network-driven daemon, actively seeking possible actions. Pulls double duty by generating unknown intent responses, where improvisation is needed.
 
 #### [/waystone/](/waystone/) - **Waystones**
 The bridge to reality. A microservice run at all local sites, meant to bridge local network access and expose the real world to the network. Apollo GraphQL server.
@@ -49,6 +49,6 @@ flowchart TD
     Nexus --Unknown Intent Extraction-->CloudNL
     Nexus --Improvise Failures --> Viola
     Viola <--Improvisation Synthesis-->CloudTTS
-    CloudNL --Improvise Contextually--> Viola
+    CloudNL <--Improvise Contextually--> Viola
     Viola --> OpenAI[[OpenAI API]]
 ```
