@@ -16,8 +16,9 @@ jobs:
           cache: 'npm'
       - run: npm install
   Prisma-Generate:
+    needs: npm-Install
     runs-on: ubuntu-latest
     steps:
       - name: Generate prisma client
         run: npx --yes prisma generate
-        working-directory: ./graff
+        working-directory: graff
