@@ -6,19 +6,23 @@ This repository contains a monorepo of the critical infrastructure powering SAM,
 
 The infrastructure is broken into microservices, which roughly map to directories in this folder:
 
-### [/graff/](/graff/) - **Graff** - Unimplemented
-The knowledge graph. This is a graphql server meant to provide internal read/writable access to known truth for safe network clients. Prisma managed RDS database.
+### Implemented
 
-### [/nexus/](/nexus/) - **Nexus** - Unimplemented
+#### [/graff/](/graff/) - **Graff**
+The knowledge graph. This is a graphql server meant to provide internal read/writable access to known truth for safe network clients. Prisma managed PlanetScale database.
+
+### Unimplemented (Planned)
+
+#### [/nexus/](/nexus/) - **Nexus**
 The hub of all networks. Guarddog and pathfinder, a graphql federation server that assembles and protects a singular exposed supergraph.
 
-### [/sam/](/sam/) - **SAM** - Unimplemented
+#### [/sam/](/sam/) - **SAM**
 Secure, Assure, Mitigate. Natural language interface for the network, providing wake word functionality, authentication, and managed access to the network.
 
-### [/viola/](/viola/) - **Viola** - Unimplemented
+#### [/viola/](/viola/) - **Viola**
 The improvisation engine. While SAM is capable of responding to user-triggered requests, Viola is a neural-network-driven daemon, actively seeking possible actions.
 
-### [/waystone/](/waystone/) - **Waystones** - Unimplemented
+#### [/waystone/](/waystone/) - **Waystones**
 The bridge to reality. A microservice run at all local sites, meant to bridge local network access and expose the real world to the network. Apollo GraphQL server.
 
 ## You find a Map:
