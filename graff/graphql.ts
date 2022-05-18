@@ -14,10 +14,10 @@ const typeDefs = gql`
   type User {
     id: String!
     email: String
-    type: USER_TYPE!
+    role: ROLE!
   }
 
-  enum USER_TYPE {
+  enum ROLE {
     USER
     ADMIN
   }
