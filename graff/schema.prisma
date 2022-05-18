@@ -9,6 +9,7 @@ datasource db {
 generator client {
   provider = "prisma-client-js"
   previewFeatures = ["dataProxy", "referentialIntegrity"]
+  binaryTargets = ["native", "rhel-openssl-1.0.x"]
 }
 
 model User {

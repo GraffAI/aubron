@@ -2,8 +2,14 @@ service: graff-server
 frameworkVersion: '3'
 
 plugins:
-  - serverless-plugin-monorepo
   - serverless-plugin-typescript
+
+package:
+  patterns:
+    - '!node_modules/.prisma/client/libquery_engine-*'
+    - 'node_modules/.prisma/client/libquery_engine-rhel-*'
+    - '!node_modules/prisma/libquery_engine-*'
+    - '!node_modules/@prisma/engines/**'
 
 provider:
   name: aws
@@ -11,14 +17,8 @@ provider:
   region: us-west-2
 
 functions:
-  graphql:
+  interface:
     handler: graphql.graphqlHandler
-    url:
-      cors:
-        allowCredentials: true
-        allowedMethods:
-          - GET
-          - POST
     events:
       - httpApi:
           path: /
