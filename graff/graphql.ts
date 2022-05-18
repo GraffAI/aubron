@@ -1,11 +1,13 @@
 // graphql.js
 
 const { ApolloServer, gql } = require('apollo-server-lambda');
-
+import { PrismaClient } from '@prisma/client'
+const prisma = new PrismaClient();
 // Construct a schema, using GraphQL schema language
 const typeDefs = gql`
   type Query {
     hello: String
+    test: String
   }
 `;
 
@@ -13,6 +15,10 @@ const typeDefs = gql`
 const resolvers = {
   Query: {
     hello: () => 'Hello world!',
+    test: () => {
+      console.log(prisma.user.findMany());
+      return 'ha';
+    }
   },
 };
 
