@@ -6,8 +6,8 @@ on:
       - 'main'
 
 jobs:
-  build:
-    name: Production Build 
+  deploy:
+    name: Deploy to Production
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -23,23 +23,6 @@ jobs:
       - run: npm install
       - name: Generate prisma client
         run: npx --yes prisma generate
-        working-directory: ./graff
-  deploy:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
-        with:
-          node-version: 18
-      - name: Cache dependencies
-        uses: actions/cache@v2
-        with:
-          path: ~/.npm
-          key: npm-${{ hashFiles('package-lock.json') }}
-          restore-keys: npm-
-      - run: npm install
         working-directory: ./graff
       - run: npx --yes serverless deploy
         working-directory: ./graff
