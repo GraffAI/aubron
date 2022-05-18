@@ -39,6 +39,8 @@ jobs:
           path: ~/.npm
           key: npm-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-
+      - run: npm install
+        working-directory: ./graff
       - run: npx --yes serverless deploy
         working-directory: ./graff
         name: Deploy serverless function
