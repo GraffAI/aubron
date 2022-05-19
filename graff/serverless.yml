@@ -2,6 +2,7 @@ service: graff-server
 frameworkVersion: '3'
 
 plugins:
+  - serverless-offline
   - serverless-esbuild
 
 package:
@@ -14,7 +15,7 @@ package:
 
 provider:
   name: aws
-  runtime: nodejs14.x
+  runtime: nodejs16.x
   region: us-west-2
 
 functions:
@@ -22,7 +23,5 @@ functions:
     handler: graphql.graphqlHandler
     environment:
       DATABASE_URL: ${env:DATABASE_URL}
-    events:
-      - httpApi:
-          path: /
-          method: any
+    url: true
+      # authorizer: aws_iam

@@ -11,9 +11,12 @@
   "devDependencies": {
     "esbuild": "^0.14.39",
     "serverless-esbuild": "^1.27.1",
+    "serverless-offline": "^8.8.0",
     "typescript": "^4.6.4"
   },
   "dependencies": {
+    "@graphql-tools/graphql-file-loader": "^7.3.12",
+    "@graphql-tools/load": "^7.5.11",
     "@prisma/client": "^3.14.0",
     "apollo-server-lambda": "^3.7.0",
     "graphql": "^16.5.0",
