@@ -7,13 +7,16 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to Production
+    name: Deploy Graff to Production
     runs-on: ubuntu-latest
+    env:
+      APOLLO_KEY: ${{ secrets.APOLLO_KEY }}
+      APOLLO_VCS_COMMIT: ${{ github.event.pull_request.head.sha }}
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
         with:
-          node-version: 18
+          node-version: 16
       - name: Cache dependencies
         uses: actions/cache@v2
         with:
@@ -25,6 +28,13 @@ jobs:
       - name: Generate prisma client
         run: npx --yes prisma generate
         working-directory: ./graff
+      - name: Deploy graff subgraph schema
+        run: npx -p @apollo/rover@latest
+            rover subgraph publish SAM-Network@current
+            --name graff
+            --schema ./graff/graff.graphql
+            --routing-url https://5dzjxkymr3ie6lj7b4b3ysll6y0znyyn.lambda-url.us-west-2.on.aws
+            --elv2-license accept
       - run: npx --yes serverless deploy
         working-directory: ./graff
         name: Deploy serverless function
