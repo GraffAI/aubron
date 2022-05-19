@@ -28,4 +28,4 @@ const graphql = async () => {
   return server.createHandler();
 }
 
-exports.graphqlHandler = graphql;
+exports.graphqlHandler = graphql();
