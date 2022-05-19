@@ -34,7 +34,6 @@ jobs:
             --name graff
             --schema ./graff/graff.graphql
             --routing-url https://5dzjxkymr3ie6lj7b4b3ysll6y0znyyn.lambda-url.us-west-2.on.aws
-            --elv2-license accept
       - run: npx --yes serverless deploy
         working-directory: ./graff
         name: Deploy serverless function
