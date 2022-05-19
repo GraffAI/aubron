@@ -6,7 +6,7 @@ import { loadSchema } from '@graphql-tools/load';
 import { GraphQLFileLoader } from '@graphql-tools/graphql-file-loader';
 
 
-const main = async () => {
+const graphql = async () => {
   
   const prisma = new PrismaClient();
   // Construct a schema, using GraphQL schema language
@@ -28,4 +28,4 @@ const main = async () => {
   return server.createHandler();
 }
 
-exports.graphqlHandler = main();
+exports.graphqlHandler = graphql;
