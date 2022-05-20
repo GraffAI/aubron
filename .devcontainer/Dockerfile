@@ -8,6 +8,8 @@ FROM mcr.microsoft.com/vscode/devcontainers/javascript-node:0-${VARIANT}
 # RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
 #     && apt-get -y install --no-install-recommends <your-package-list-here>
 
+RUN apt-get update && apt-get -y install --no-install-recommends python3-pip
+
 # [Optional] Uncomment if you want to install an additional version of node using nvm
 # ARG EXTRA_NODE_VERSION=10
 # RUN su node -c "source /usr/local/share/nvm/nvm.sh && nvm install ${EXTRA_NODE_VERSION}"
@@ -19,6 +21,9 @@ RUN dpkg -i ./pscale_0.94.0_linux_amd64.deb
 
 # Add rover cli
 RUN curl -sSL https://rover.apollo.dev/nix/latest | sh
+
+# Add AWS Elastic Beanstalk CLI
+RUN pip install awsebcli --upgrade --user
 
 # [Optional] Uncomment if you want to install more global node modules
 RUN su node -c "npm install -g prisma serverless"

@@ -11,10 +11,10 @@ The infrastructure is broken into microservices, which roughly map to directorie
 #### [/graff/](/graff/) - **Graff**
 The knowledge graph. This is a graphql server meant to provide internal read/writable access to known truth for safe network clients. Prisma managed PlanetScale database.
 
-### Unimplemented (Planned)
-
 #### [/nexus/](/nexus/) - **Nexus**
-The hub of all networks. Guarddog and pathfinder, a graphql federation server that assembles and protects a singular exposed supergraph.
+The hub of all networks. Guarddog and pathfinder, a graphql federation server that assembles and protects a singular exposed supergraph. Apollo Gateway running on Elastic Beanstalk
+
+### Unimplemented (Planned)
 
 #### [/sam/](/sam/) - **SAM**
 Secure, Assure, Mitigate. Natural language interface for the network, providing wake word functionality, authentication, and managed access to the network.
@@ -33,17 +33,19 @@ flowchart TD
     SAM{{SAM Client}}
   end
   subgraph Cloud Services
-    Graff{{Graff}}
+    Graff{{Graff<br>-Apollo-}}
     Viola{{Viola}}
-    Nexus{{Nexus}}
+    Nexus{{Nexus<br>-Apollo Gateway-}}
     CloudTTS[[Cloud Wavenet Synthesis]]
     CloudNL[[Cloud Natural Language]]
+    Planetscale[[Planetscale Database]]
   end
   subgraph On Prem Site
-    Waystone{{Waystone}} --> localDevices((Various Local Devices<br>State, Interaction))
+    Waystone{{Waystone<br>-Apollo-}} --> localDevices((Various Local Devices<br>State, Interaction))
   end
-    SAM --GraphQL Queries--> Nexus
-    Nexus --GraphQL/Prisma--> Graff
+    SAM --GraphQL --> Nexus
+    SAM <--Websocket Audio--> Nexus
+    Nexus --Apollo Federation--> Graff --Generated Prisma Client--> Planetscale
     Nexus --Apollo Federation--> Waystone
     Nexus --Speech Synthesis--> CloudTTS 
     Nexus --Unknown Intent Extraction-->CloudNL
