@@ -25,5 +25,9 @@ RUN curl -sSL https://rover.apollo.dev/nix/latest | sh
 # Add AWS Elastic Beanstalk CLI
 RUN pip install awsebcli --upgrade --user
 
+RUN aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID \
+    && aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY \
+    && aws configure set region $AWS_DEFAULT_REGION
+
 # [Optional] Uncomment if you want to install more global node modules
-RUN su node -c "npm install -g prisma serverless"
+RUN su node -c "npm install -g prisma serverless @aws-amplify/cli"
