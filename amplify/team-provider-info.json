@@ -1,0 +1,15 @@
+{
+  "dev": {
+    "awscloudformation": {
+      "AuthRoleName": "amplify-aubron-dev-130749-authRole",
+      "UnauthRoleArn": "arn:aws:iam::343167843863:role/amplify-aubron-dev-130749-unauthRole",
+      "AuthRoleArn": "arn:aws:iam::343167843863:role/amplify-aubron-dev-130749-authRole",
+      "Region": "us-west-2",
+      "DeploymentBucketName": "amplify-aubron-dev-130749-deployment",
+      "UnauthRoleName": "amplify-aubron-dev-130749-unauthRole",
+      "StackName": "amplify-aubron-dev-130749",
+      "StackId": "arn:aws:cloudformation:us-west-2:343167843863:stack/amplify-aubron-dev-130749/da5b3d60-d83d-11ec-b85a-0a6c2b25d819",
+      "AmplifyAppId": "d3n8yvay1k13rm"
+    }
+  }
+}
