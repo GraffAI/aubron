@@ -3,6 +3,11 @@
   "version": "0.0.0",
   "description": "__DESCRIPTION__",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GraffAI/aubron.git",
+    "directory": "packages/__NAME__"
+  },
   "type": "module",
   "files": [
     ".claude-plugin",

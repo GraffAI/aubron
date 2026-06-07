@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "Validate and release Claude Agent Skills from the @aubron package factory.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GraffAI/aubron.git",
+    "directory": "packages/skill-tools"
+  },
   "type": "module",
   "exports": {
     ".": {

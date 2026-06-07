@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "Shared ESLint flat configuration for @aubron packages.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GraffAI/aubron.git",
+    "directory": "packages/eslint-config"
+  },
   "type": "module",
   "main": "index.js",
   "exports": {

@@ -352,6 +352,10 @@ function cmdEject(argv: string[]): void {
   if (rootPkg.packageManager) out.packageManager = rootPkg.packageManager as string;
   if (values.private) out.private = true;
 
+  // Repoint `repository` at the standalone repo (no monorepo `directory`), so
+  // npm provenance validates against the ejected package's own CI.
+  out.repository = { type: "git", url: `git+https://github.com/GraffAI/${name}.git` };
+
   // 4. flatten package contents (configs copy verbatim — they reference
   //    @aubron/* by name, which now resolves from npm) and write package.json.
   mkdirSync(dest, { recursive: true });

@@ -3,6 +3,11 @@
   "version": "0.1.1",
   "description": "Agent-first CLI for AnkerMake / eufyMake M5 printers — a thin shell over @aubron/ankerts.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GraffAI/aubron.git",
+    "directory": "packages/ankerts-cli"
+  },
   "type": "module",
   "exports": {
     ".": {

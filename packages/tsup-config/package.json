@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "Shared tsup build preset for @aubron packages.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GraffAI/aubron.git",
+    "directory": "packages/tsup-config"
+  },
   "type": "module",
   "exports": {
     ".": {

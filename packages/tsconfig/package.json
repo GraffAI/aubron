@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "Shared TypeScript configurations for @aubron packages.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GraffAI/aubron.git",
+    "directory": "packages/tsconfig"
+  },
   "type": "module",
   "files": [
     "*.json"
