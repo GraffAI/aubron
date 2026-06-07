@@ -1,5 +1,16 @@
 # @aubron/ankerts-cli
 
+## 0.1.1
+
+### Patch Changes
+
+- [#7](https://github.com/GraffAI/aubron/pull/7) [`16af498`](https://github.com/GraffAI/aubron/commit/16af498d068899425f7c6ba79e7163617275f35f) Thanks [@Aubron](https://github.com/Aubron)! - Fix `print`: the automatic slicer metadata-fix never ran on a real upload. The
+  `uploadAndPrint` call checked a renamed/nonexistent `--fix-metadata` flag (always
+  false) while only the `--dry-run` report used the correct `--no-fix-metadata`
+  opt-out — so dry-run looked right but every actual upload skipped the `;TIME:`
+  injection (third-party slices showed 00:00 ETA). The value is now computed once
+  and used in both paths.
+
 ## 0.1.0
 
 ### Minor Changes
