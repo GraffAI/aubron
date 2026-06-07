@@ -1,6 +1,6 @@
 ---
 name: ankerts
-description: Drive an AnkerMake / eufyMake M5-class 3D printer with the `ankerts` CLI — send gcode and read complete responses, query status, discover the printer on the LAN, and upload + start prints. Use this whenever the task involves an AnkerMake or eufyMake M5 printer, the `ankerts` command, sending gcode (M-codes / G-codes) to a printer, checking nozzle/bed temps or print progress, or uploading a sliced .gcode file to print.
+description: Drive an AnkerMake / eufyMake M5-class 3D printer with the `ankerts` CLI — send gcode and read its parsed response (truncation-aware), query status, discover the printer on the LAN, and upload + start prints. Use this whenever the task involves an AnkerMake or eufyMake M5 printer, the `ankerts` command, sending gcode (M-codes / G-codes) to a printer, checking nozzle/bed temps or print progress, or uploading a sliced .gcode file to print.
 ---
 
 # ankerts

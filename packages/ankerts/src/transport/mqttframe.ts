@@ -5,8 +5,8 @@
  * JSON payload and a trailing XOR checksum byte. The header carries a packet
  * type (Single / MultiBegin / MultiAppend / MultiFinish), a per-printer device
  * GUID, and a timestamp. In practice each MQTT message carries one complete JSON
- * object (the multi-frame gcode reply story of §6 is at the application layer:
- * several *separate* reply messages, not header fragmentation).
+ * object, and a gcode reply is a single such message whose `resData` is one
+ * ~512-byte serial-buffer snapshot (see protocol/gcode.ts) — not fragmentation.
  *
  * Pure framing — pack/parse round-trips are unit-tested without a broker.
  */

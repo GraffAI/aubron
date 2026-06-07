@@ -66,7 +66,11 @@ export interface WaitOptions {
 }
 
 export interface MachineSettings {
-  /** The full M503 result (raw + all reports). */
+  /**
+   * The M503 result. NOTE: M503's output usually exceeds the firmware's
+   * ~512-byte reply window, so this can be partial — check `result.truncated`
+   * before treating `reports` as the complete settings set.
+   */
   result: GcodeResult;
   reports: Record<string, string>;
   linearAdvanceK?: number;

@@ -37,11 +37,11 @@ ankerts login --email me@example.com --password - --country US --save
 # First printer's DUID — clean stdout, no logs intermixed.
 ankerts printer list --json | jq -r '.[0].duid'
 
-# Full firmware string (complete multi-frame gcode response).
-ankerts gcode M115 --json | jq -r '.fields.FIRMWARE_NAME'
+# Firmware name (long reply → truncated:true, but the name is present).
+ankerts gcode M115 --json | jq '{firmware:.fields.FIRMWARE_NAME, truncated}'
 
-# The bug that started this project — the COMPLETE Linear Advance K value.
-ankerts gcode M900 --json | jq -r '.fields["Advance K"]'
+# Short replies come back whole; check `.truncated` before trusting long ones.
+ankerts gcode M105 --json | jq -r '.raw'
 
 # Upload + start over the LAN (auto-discovers IP; exit 6 with a fix if off-LAN).
 ankerts print tower.gcode

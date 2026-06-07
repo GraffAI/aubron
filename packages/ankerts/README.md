@@ -41,9 +41,10 @@ const client = await AnkerClient.login({
 // Or load a previously stored config.
 const c = AnkerClient.fromStoredConfig();
 
-// Send gcode and get the COMPLETE, reassembled, parsed response (MQTT).
-const r = await c.gcode("M900"); // Linear Advance query
-console.log(r.fields["Advance K"]); // "0.00" — never a truncated "echo:Ad"
+// Send gcode and get a parsed response (MQTT). `truncated` tells you whether the
+// firmware's ~512-byte reply snapshot was partial — short reads come back whole.
+const r = await c.gcode("M105"); // temps
+if (!r.truncated) console.log(r.raw); // "ok T:29.12 /0.00 B:30.31 /0.00"
 
 // Status, normalized to °C and 0–100% (bogus third-party-gcode ETA suppressed).
 const status = await c.getStatus();
@@ -71,7 +72,7 @@ line for the full output:
 ```ts
 interface GcodeResult {
   command: string;
-  raw: string; // reassembled text, ANSI-free
+  raw: string; // collected reply text, ANSI-free
   lines: string[];
   ok: boolean; // a terminal `ok` was seen
   recognized: boolean; // false iff `echo:Unknown command`

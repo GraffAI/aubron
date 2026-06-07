@@ -127,9 +127,12 @@ const stateSnapshot: CommandSpec = defineCommand({
   path: ["state", "snapshot"],
   summary: "Capture machine settings (M503) as a parsed object.",
   description:
-    "Sends M503 over MQTT and parses the multi-frame settings dump into a structured " +
-    "object (linear advance K, hotend PID, steps/mm, probe Z offset, and the full report " +
-    "map). Pair with `state restore` to undo volatile changes.",
+    "Sends M503 over MQTT and parses the settings dump into a structured object (linear " +
+    "advance K, hotend PID, steps/mm, probe Z offset, and the report map). NOTE: M503's " +
+    "output usually exceeds the firmware's ~512-byte reply window, so the snapshot can be " +
+    "partial — check `result.truncated`. (A piecewise reader that stitches the full set " +
+    "from short per-setting queries is tracked as a follow-up.) Pair with `state restore` " +
+    "to undo volatile changes.",
   transport: "mqtt",
   exitCodes: [0, 1, 3, 4, 5],
   examples: [
