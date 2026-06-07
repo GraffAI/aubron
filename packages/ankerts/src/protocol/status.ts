@@ -60,7 +60,17 @@ export function isEtaReliable(schedule: RawNotice): boolean {
   return true;
 }
 
-function deriveState(schedule: RawNotice | undefined, progressPct: number): JobState {
+function deriveState(
+  schedule: RawNotice | undefined,
+  progressPct: number,
+  eventState?: number,
+): JobState {
+  // Authoritative: EVENT_NOTIFY subType:1 carries the firmware job state
+  // (0=idle, 1=printing, 2=paused), confirmed live. Prefer it when present.
+  if (eventState === 0) return progressPct >= 100 ? "complete" : "idle";
+  if (eventState === 1) return progressPct >= 100 ? "complete" : "printing";
+  if (eventState === 2) return "paused";
+
   const hint = schedule?.state;
   if (typeof hint === "string") {
     const h = hint.toLowerCase();
@@ -92,6 +102,9 @@ export function normalizeStatus(
   const layerN = latest.get(NoticeType.MODEL_LAYER);
   const speedN = latest.get(NoticeType.PRINT_SPEED);
   const schedule = latest.get(NoticeType.PRINT_SCHEDULE);
+  // EVENT_NOTIFY subType:1 → authoritative job state (0=idle,1=printing,2=paused).
+  const eventN = latest.get(NoticeType.EVENT_NOTIFY);
+  const eventState = num(eventN?.subType) === 1 ? num(eventN?.value) : undefined;
 
   const raw: Record<string, unknown> = {};
   for (const [type, payload] of latest) raw[String(type)] = payload;
@@ -115,7 +128,7 @@ export function normalizeStatus(
 
     status.job = {
       name: typeof schedule.name === "string" ? schedule.name : "",
-      state: deriveState(schedule, progressPct),
+      state: deriveState(schedule, progressPct, eventState),
       progressPct,
       layer: num(layerN?.real_print_layer) ?? 0,
       totalLayers: num(layerN?.total_layer) ?? 0,

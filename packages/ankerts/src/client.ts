@@ -291,6 +291,10 @@ export class AnkerClient {
   }
 
   // --- job control (MQTT) ---
+  //
+  // PRINT_CONTROL (0x03f0) with the `value` codes in PrintControl, reverse-
+  // engineered and confirmed live against an M5 (2026-06-07): cancel drops the
+  // job to idle with heaters off; pause/resume toggle the print.
 
   async cancelJob(): Promise<void> {
     (await this.ensureMqtt()).command({

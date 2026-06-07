@@ -36,9 +36,20 @@ export enum NoticeType {
   MODEL_LAYER = 1052,
 }
 
-/** `PRINT_CONTROL` (0x03f0) sub-values used for job control (pause/resume/stop). */
+/**
+ * `PRINT_CONTROL` (0x03f0) `value` for job control. Reverse-engineered live
+ * against an M5 (2026-06-07): each value was sent and confirmed by watching the
+ * printer's authoritative job state and heater targets.
+ */
 export enum PrintControl {
-  PAUSE = 1,
-  RESUME = 2,
-  STOP = 3,
+  PAUSE = 2, // → state 2 (paused), progress freezes
+  RESUME = 3, // → state 1 (printing)
+  STOP = 4, // → state 0 (idle), nozzle + bed targets drop to 0
+}
+
+/** Job state reported by `EVENT_NOTIFY` (0x03e8) with `subType: 1`. */
+export enum PrintState {
+  IDLE = 0,
+  PRINTING = 1,
+  PAUSED = 2,
 }

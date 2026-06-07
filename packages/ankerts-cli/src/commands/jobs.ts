@@ -128,7 +128,10 @@ function jobControl(verb: "cancel" | "pause" | "resume"): CommandSpec {
   return defineCommand({
     path: ["job", verb],
     summary: `${verb[0]!.toUpperCase()}${verb.slice(1)} the current print job.`,
-    description: `Sends the ${verb} control command to the printer over MQTT (PRINT_CONTROL).`,
+    description:
+      `Sends the ${verb} control command to the printer over MQTT (PRINT_CONTROL). ` +
+      "The control values were reverse-engineered and confirmed live on an M5: cancel " +
+      "returns the printer to idle with the heaters off; pause/resume toggle the print.",
     transport: "mqtt",
     exitCodes: [0, 1, 3, 4, 5, 7],
     examples: [{ cmd: `ankerts job ${verb}` }],

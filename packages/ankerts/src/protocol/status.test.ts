@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PrintControl } from "./commands.js";
 import { normalizeStatus, type RawNotice } from "./status.js";
 
 // Observed live during the tower print (§5). Temps in 1/100 °C, progress 1/100 %.
@@ -43,6 +44,24 @@ describe("normalizeStatus — third-party gcode ETA (§4A)", () => {
 
   it("still reports state as printing", () => {
     expect(s.job?.state).toBe("printing");
+  });
+});
+
+describe("job state from EVENT_NOTIFY (reverse-engineered live)", () => {
+  const sched: RawNotice = { commandType: 1001, name: "x.gcode", progress: 3000 };
+  const withEvent = (value: number) =>
+    normalizeStatus([sched, { commandType: 1000, subType: 1, value }]).job?.state;
+
+  it("maps the firmware state codes (0=idle, 1=printing, 2=paused)", () => {
+    expect(withEvent(1)).toBe("printing");
+    expect(withEvent(2)).toBe("paused");
+    expect(withEvent(0)).toBe("idle");
+  });
+
+  it("PRINT_CONTROL values match what was confirmed on hardware", () => {
+    expect(PrintControl.PAUSE).toBe(2);
+    expect(PrintControl.RESUME).toBe(3);
+    expect(PrintControl.STOP).toBe(4);
   });
 });
 
