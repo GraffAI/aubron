@@ -94,20 +94,19 @@ const print: CommandSpec = defineCommand({
     const file = requirePositional(ctx, 0, "file.gcode");
     const client = ctx.client();
 
+    // Compute once so the dry-run report and the real call can never diverge
+    // (they did in 0.1.0: the upload checked a renamed flag and never fixed).
+    const start = !flagBool(ctx.args, "no-start");
+    const fixMetadata = !flagBool(ctx.args, "no-fix-metadata");
+
     if (ctx.globals.dryRun) {
-      ctx.out.emit({
-        dryRun: true,
-        action: "print",
-        file,
-        start: !flagBool(ctx.args, "no-start"),
-        fixMetadata: !flagBool(ctx.args, "no-fix-metadata"),
-      });
+      ctx.out.emit({ dryRun: true, action: "print", file, start, fixMetadata });
       return;
     }
 
     const result = await client.uploadAndPrint(file, {
-      start: !flagBool(ctx.args, "no-start"),
-      fixMetadata: flagBool(ctx.args, "fix-metadata"),
+      start,
+      fixMetadata,
       transport: (ctx.args.values.transport as "lan" | "auto") ?? "auto",
       onProgress: (p) => ctx.out.log(JSON.stringify({ event: "upload", ...p })),
     });
