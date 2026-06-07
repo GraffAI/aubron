@@ -1,17 +1,23 @@
 /**
- * Gcode request/response handling — the centerpiece of the SDK (brief §6).
+ * Gcode request/response handling (brief §6).
  *
- * A single gcode command's textual output is delivered by the printer as one or
- * more MQTT reply frames, each carrying a chunk in `resData`. The reference
- * returned only the FIRST chunk, truncating multi-frame replies (the `echo:Ad`
- * bug). Here we concatenate every chunk in arrival order into the complete text,
- * strip ANSI, and parse it into a structured `GcodeResult` — callers never see a
- * partial line.
+ * IMPORTANT — corrected against real M5 hardware (see the project memory). The
+ * brief assumed a gcode reply arrives across multiple `0x0413` frames to be
+ * reassembled. It does not: each send yields exactly ONE reply whose `resData`
+ * is a point-in-time snapshot of the firmware's ~512-byte serial ring buffer,
+ * and the snapshot is RACY. Short replies (M105) come back whole; replies that
+ * exceed the window are capped at 512 bytes; and a reply caught mid-write
+ * truncates early with a `+ringbuf:<a>,512,<b>` marker (the buffer reporting its
+ * own state) — this is the real `echo:Ad` bug.
  *
- * This module is pure: the transport collects frames and decides completion
- * (terminal `ok` / quiet period / hard timeout); these functions turn the
- * collected chunks into a result. That keeps the parser fully unit-testable
- * against the observed fixtures.
+ * So we still concatenate whatever chunks the transport collected, strip ANSI,
+ * and parse — but the key honesty fix is `truncated`: rather than silently
+ * handing back a partial line (as the reference did), we DETECT truncation and
+ * flag it, so a caller never mistakes `echo:Ad` for a complete reply.
+ *
+ * This module is pure: the transport collects the reply and decides completion;
+ * these functions turn the collected chunks into a result, keeping the parser
+ * fully unit-testable against the observed captures.
  */
 
 export interface GcodeResult {
@@ -33,9 +39,20 @@ export interface GcodeResult {
   durationMs: number;
   /** Completion signal never arrived within the timeout. */
   timedOut: boolean;
-  /** How many MQTT frames were reassembled (diagnostic). */
+  /**
+   * The reply is incomplete: it hit the firmware's ~512-byte snapshot window, or
+   * carries a `+ringbuf:` marker showing the serial buffer was mid-write. When
+   * true, `raw`/`fields`/`reports` may be partial — do not trust them as the
+   * full command output. (The reference silently returned these as if complete.)
+   */
+  truncated: boolean;
+  /** How many reply chunks were collected (diagnostic; usually 1 — see header). */
   frames: number;
 }
+
+// The firmware's gcode reply is a snapshot of a ~512-byte serial ring buffer.
+const GCODE_WINDOW_BYTES = 512;
+const RINGBUF_RE = /\+ringbuf:\s*\d+,\s*\d+,\s*\d+/;
 
 // ANSI escape sequences (CSI/SGR etc.). The ESC (0x1b) and single-byte CSI
 // (0x9b) introducers are assembled via fromCharCode so no control byte lives in
@@ -65,12 +82,20 @@ export function splitLines(raw: string): string[] {
 }
 
 /**
- * Does the reassembled text contain a terminal `ok`? Marlin terminates a
+ * Does the reassembled text END with a terminal `ok`? Marlin terminates a
  * command's output with an `ok` line (sometimes carrying data, e.g. M105's
- * `ok T:...`). Used by the transport's completion detection.
+ * `ok T:...`). The check is on the LAST non-empty line, not any line: the M5
+ * firmware emits a leading `ok` (and a double-`ok`) BEFORE the real output (e.g.
+ * `ok\n\nok\n\n+ringbuf:...\necho:Advance K=0.00\nok`), so matching any `ok`
+ * would stop reassembly early and truncate the reply — the `echo:Ad` bug. Used
+ * by the transport's completion detection.
  */
 export function gcodeHasTerminalOk(raw: string): boolean {
-  return splitLines(raw).some((l) => /^ok\b/i.test(l) || l.toLowerCase() === "ok");
+  // Ignore trailing firmware buffer-state noise (`+ringbuf:...` / a lone `+`)
+  // that the M5 appends AFTER the terminal `ok`, which would otherwise hide it.
+  const lines = splitLines(raw).filter((l) => !/^\+/.test(l));
+  const last = lines[lines.length - 1];
+  return last !== undefined && (/^ok\b/i.test(last) || last.toLowerCase() === "ok");
 }
 
 /** Was an "unknown command" rejection seen? */
@@ -122,6 +147,10 @@ export function parseGcodeResult(
   const fields: Record<string, string> = {};
   const reports: Record<string, string> = {};
 
+  // Truncation: a `+ringbuf:` marker (snapshot taken mid-write) or hitting the
+  // ~512-byte window (more output existed than the snapshot could hold).
+  const truncated = RINGBUF_RE.test(raw) || chunks.join("").length >= GCODE_WINDOW_BYTES;
+
   for (const line of lines) {
     // Strip a leading `echo:` and any indentation Marlin adds inside reports.
     const body = line.replace(/^echo:\s*/i, "").trim();
@@ -158,6 +187,7 @@ export function parseGcodeResult(
     reports,
     durationMs: meta.durationMs,
     timedOut: meta.timedOut,
+    truncated,
     frames: chunks.length,
   };
 }

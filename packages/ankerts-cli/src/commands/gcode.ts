@@ -15,17 +15,18 @@ function warnIfMutating(ctx: Context, command: string): void {
 
 const gcode: CommandSpec = defineCommand({
   path: ["gcode"],
-  summary: "Send gcode and return the COMPLETE reassembled, parsed response.",
+  summary: "Send gcode and return the parsed response (truncation-aware).",
   description:
-    "Publishes gcode over MQTT and collects EVERY reply frame, concatenating them into " +
-    "the full response before parsing — never returning a truncated line (the reference's " +
-    "`echo:Ad` bug). The result carries raw text, parsed fields/reports, ok, recognized, " +
-    "and timedOut (distinct from recognized:false — a timeout is not a rejection). " +
-    "Accepts one command as args, many via --batch <file>, or `-` to read stdin " +
-    "(one per line, NDJSON result per line). State-mutating commands print a volatility " +
-    "warning on stderr unless --yes. Default timeouts are latency-class aware (M109/M190/" +
-    "G29/M303 get minutes); --wait-motion appends M400 so the call returns on true motion " +
-    "completion, not queue-accept.",
+    "Publishes gcode over MQTT and parses the reply into raw text, fields/reports, ok, " +
+    "recognized, and timedOut (distinct from recognized:false — a timeout is not a " +
+    "rejection). The firmware returns each reply as a single ~512-byte serial-buffer " +
+    "snapshot, so long replies (or one caught mid-write, e.g. M900) come back partial: " +
+    "those are flagged `truncated:true` (with a stderr warning) instead of being passed " +
+    "off as complete like the reference's `echo:Ad` bug. Accepts one command as args, " +
+    "many via --batch <file>, or `-` to read stdin (one per line, NDJSON result per line). " +
+    "State-mutating commands print a volatility warning on stderr unless --yes. Default " +
+    "timeouts are latency-class aware (M109/M190/G29/M303 get minutes); --wait-motion " +
+    "appends M400 so the call returns on true motion completion, not queue-accept.",
   transport: "mqtt",
   args: [
     {
@@ -46,19 +47,19 @@ const gcode: CommandSpec = defineCommand({
   exitCodes: [0, 1, 3, 4, 5, 7],
   examples: [
     {
-      description: "Read the full firmware string",
-      cmd: "ankerts gcode M115 --json | jq -r '.fields.FIRMWARE_NAME'",
-      output: "Marlin V8111_V3.2.2 (...)",
+      description: "Read the firmware name (long reply → truncated:true, name still present)",
+      cmd: "ankerts gcode M115 --json | jq '{firmware:.fields.FIRMWARE_NAME, truncated}'",
+      output: '{ "firmware": "Marlin V8111_V3.2.2 (...)", "truncated": true }',
     },
     {
-      description: "The bug that started this — the COMPLETE Linear Advance K",
-      cmd: "ankerts gcode M900 --json | jq -r '.fields[\"Advance K\"]'",
-      output: "0.00",
+      description: "A short reply comes back whole",
+      cmd: "ankerts gcode M105 --json | jq -r '.raw'",
+      output: "ok T:29.12 /0.00 B:30.31 /0.00",
     },
     {
-      description: "Detect an unknown command",
-      cmd: "ankerts gcode M9998 --json | jq .recognized",
-      output: "false",
+      description: "Detect an unknown command (not a truncation)",
+      cmd: "ankerts gcode M9998 --json | jq '{recognized, truncated}'",
+      output: '{ "recognized": false, "truncated": false }',
     },
     {
       description: "Batch from stdin, one NDJSON result per line",
@@ -106,6 +107,11 @@ const gcode: CommandSpec = defineCommand({
     if (commands.length === 1) {
       const result = await client.gcode(commands[0]!, opts);
       await client.close();
+      if (result.truncated) {
+        ctx.out.log(
+          "warning: reply was truncated by the firmware's ~512-byte serial buffer (truncated=true) — output may be incomplete.",
+        );
+      }
       ctx.out.emit(result);
       return;
     }

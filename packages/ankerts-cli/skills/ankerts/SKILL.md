@@ -47,9 +47,9 @@ rejected. Retry on `5`; do not retry on `2`/`3`.
 ankerts login --email "$EMAIL" --password - --country US --save   # password via stdin
 ankerts printer list --json | jq -r '.[0].duid'
 
-# Gcode — the response is COMPLETE (multi-frame replies are reassembled)
-ankerts gcode M115 --json | jq -r '.fields.FIRMWARE_NAME'
-ankerts gcode M900 --json | jq -r '.fields["Advance K"]'   # full value, not truncated
+# Gcode — check `.truncated`: the firmware caps a reply at a ~512B buffer snapshot
+ankerts gcode M115 --json | jq '{firmware:.fields.FIRMWARE_NAME, truncated}'
+ankerts gcode M105 --json | jq -r '.raw'                    # temps; short replies come back whole
 ankerts gcode M9998 --json | jq .recognized                # false for unknown commands
 
 # Status (temps in °C, progress 0–100; bogus third-party-gcode ETA is suppressed)
@@ -62,6 +62,10 @@ ankerts printer wait --until printing --timeout 120        # block until it star
 
 ## Gotchas worth knowing
 
+- **Replies can be truncated.** A gcode reply is one ~512-byte snapshot of the
+  firmware's serial buffer, so a long reply (or one caught mid-write, e.g. `M900`)
+  comes back partial with `truncated: true` and often a `+ringbuf:` marker. Check
+  `.truncated` before trusting `.raw`/`.fields`; short reads (M105, M114) are fine.
 - `ok` ≠ done. Marlin returns `ok` when a move is _queued_, not finished. For
   "moved physically": `ankerts gcode "G28" --wait-motion` (appends M400).
 - `M109`/`M190` block until temperature is reached — their default timeout is

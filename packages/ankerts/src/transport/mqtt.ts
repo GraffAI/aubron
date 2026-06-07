@@ -2,11 +2,11 @@
  * Live MQTT transport (brief §5, §6, §6A).
  *
  * Connects to the Anker cloud broker over TLS (pinned CA), subscribes to the
- * printer's notice/reply topics, and implements the gcode request/response
- * reassembly that is the centerpiece of the SDK: a command's output arrives as
- * one or more reply frames, and we collect every `resData` chunk until a
- * completion signal (terminal `ok`, quiet period, or hard timeout) before
- * parsing — never handing back a partial line.
+ * printer's notice/reply topics, and drives the gcode request/response cycle.
+ * The M5 returns each reply as a single ~512-byte serial-buffer snapshot (not a
+ * multi-frame stream — see protocol/gcode.ts), so we collect the reply, settle
+ * past the firmware's leading double-`ok`, and hand it to the parser, which
+ * flags `truncated` when the snapshot is partial.
  *
  * The transport never writes to stdout/stderr; diagnostics go through an
  * injected `log` callback so the SDK stays I/O-free.
@@ -150,8 +150,9 @@ export class AnkerMqttClient {
   }
 
   /**
-   * Send a single gcode command and return the COMPLETE, reassembled, parsed
-   * response (§6). Serialized: only one gcode is in flight at a time.
+   * Send a single gcode command and return the parsed response (§6). The result
+   * carries `truncated` when the firmware's snapshot was partial. Serialized:
+   * only one gcode is in flight at a time.
    */
   async gcode(command: string, opts: GcodeWaitOptions = {}): Promise<GcodeResult> {
     const run = this.gcodeLock.then(() => this.gcodeOnce(command, opts));
@@ -196,24 +197,32 @@ export class AnkerMqttClient {
         if (typeof chunk === "string") {
           chunks.push(chunk);
           lastFrameAt = Date.now();
-          // Terminal `ok` for this command ends collection immediately.
-          if (gcodeHasTerminalOk(reassembleRaw(chunks))) finish(false);
         }
       };
 
       this.replyHandlers.add(collector);
       this.command(payload);
 
+      // The M5 emits a leading/double `ok` before the real echo output, so we
+      // never stop on the *first* `ok` (that truncates to `echo:Ad`). Instead:
+      // a TRAILING `ok` lets us finish after a short grace for any straggler
+      // frame; otherwise the longer quiet period is the floor; the hard timeout
+      // is the ceiling.
+      const okGraceMs = Math.min(quietMs, 250);
       const ticker = setInterval(
         () => {
           const now = Date.now();
+          const idle = now - lastFrameAt;
           if (now - started >= timeoutMs) {
             finish(true); // hard timeout → timedOut = true
-          } else if (chunks.length > 0 && now - lastFrameAt >= quietMs) {
-            finish(false); // quiet-period completion
+          } else if (chunks.length > 0) {
+            const trailingOk = gcodeHasTerminalOk(reassembleRaw(chunks));
+            if (trailingOk && idle >= okGraceMs)
+              finish(false); // settled after a terminal ok
+            else if (idle >= quietMs) finish(false); // quiet-period completion
           }
         },
-        Math.max(50, Math.floor(quietMs / 4)),
+        Math.max(25, Math.floor(okGraceMs / 2)),
       );
     });
   }

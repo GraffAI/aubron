@@ -49,6 +49,25 @@ describe("parseGcodeResult — M900 (the echo:Ad truncation bug, §6)", () => {
   });
 });
 
+describe("parseGcodeResult — M5 leading double-ok framing (real hardware)", () => {
+  // Observed live: the firmware emits a leading `ok` (and a double-ok) plus a
+  // `+ringbuf` frame BEFORE the real echo output, split across frames. Stopping
+  // on the first `ok` truncates to `echo:Ad`; only the TRAILING `ok` is terminal.
+  it("a frame whose last line isn't ok is NOT terminal", () => {
+    expect(gcodeHasTerminalOk("ok\n\nok\n\n+ringbuf:1,512,0\necho:Ad")).toBe(false);
+  });
+
+  it("reassembles past the leading ok to the full Advance K value", () => {
+    const chunks = ["ok\n\nok\n\n+ringbuf:1,512,0\necho:Ad", "vance K=0.00\nok\n"];
+    const r = parseGcodeResult("M900", chunks, meta);
+    expect(r.ok).toBe(true); // trailing ok
+    expect(r.recognized).toBe(true);
+    expect(r.fields["Advance K"]).toBe("0.00");
+    // the leading ok/ringbuf noise must not pollute fields/reports
+    expect(r.reports).toEqual({});
+  });
+});
+
 describe("parseGcodeResult — M9998 (bogus command)", () => {
   const r = parseGcodeResult("M9998", ['echo:Unknown command: "M9998"\nok\n'], meta);
   it("is not recognized", () => {
@@ -79,6 +98,33 @@ describe("parseGcodeResult — M503 (multi-frame settings dump)", () => {
 
   it("did not get cut at one frame", () => {
     expect(r.frames).toBe(5);
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe("truncation detection (real M5 captures)", () => {
+  // Exact resData strings observed live on an M5 (Marlin V8111).
+  it("flags M900's mid-write snapshot as truncated", () => {
+    const r = parseGcodeResult("M900", ["ok\n\nok\n\n+ringbuf:1,512,0\necho:Ad"], meta);
+    expect(r.truncated).toBe(true);
+    expect(r.recognized).toBe(true); // not a rejection — just incomplete
+  });
+
+  it("flags a 512-byte window (M115/M503) as truncated", () => {
+    const big = "FIRMWARE_NAME:Marlin " + "x".repeat(512);
+    const r = parseGcodeResult("M115", [big.slice(0, 512)], meta);
+    expect(r.truncated).toBe(true);
+  });
+
+  it("does NOT flag a short complete reply (M105)", () => {
+    const r = parseGcodeResult("M105", ["ok T:29.12 /0.00 B:30.31 /0.00"], meta);
+    expect(r.truncated).toBe(false);
+    expect(r.ok).toBe(true);
+  });
+
+  it("does NOT flag M114 (complete, with trailing buffer noise but no ringbuf marker)", () => {
+    const r = parseGcodeResult("M114", ["X:5.00 Y:242.00 Z:10.00 E:-0.80\nok\n\n+"], meta);
+    expect(r.truncated).toBe(false);
     expect(r.ok).toBe(true);
   });
 });

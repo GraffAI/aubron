@@ -57,17 +57,21 @@ await c.uploadAndPrint("tower.gcode");
 await c.close();
 ```
 
-## The centerpiece: complete gcode responses
+## The centerpiece: honest gcode responses
 
-A command's output arrives as **one or more** MQTT reply frames. The reference
-implementation returned only the first, truncating multi-frame replies. This SDK
-concatenates every `resData` chunk in arrival order, strips ANSI, and parses the
-result into a `GcodeResult`:
+A command's `resData` reply is a single point-in-time snapshot of the firmware's
+~512-byte serial ring buffer (verified on real hardware — _not_ the multi-frame
+stream the original design assumed). Short replies come back whole; replies that
+exceed the window are capped at 512 bytes; and a reply caught mid-write truncates
+early with a `+ringbuf:` marker — the real `echo:Ad` bug. The reference returned
+these silently as if complete. This SDK strips ANSI, parses the result, and —
+crucially — **detects truncation and flags it** so you never mistake a partial
+line for the full output:
 
 ```ts
 interface GcodeResult {
   command: string;
-  raw: string; // full reassembled text, ANSI-free
+  raw: string; // reassembled text, ANSI-free
   lines: string[];
   ok: boolean; // a terminal `ok` was seen
   recognized: boolean; // false iff `echo:Unknown command`
@@ -75,14 +79,20 @@ interface GcodeResult {
   reports: Record<string, string>; // Marlin report lines keyed by M-code
   durationMs: number;
   timedOut: boolean; // distinct from `recognized: false`
-  frames: number; // diagnostic: frames reassembled
+  truncated: boolean; // reply hit the 512B window / has a +ringbuf marker → may be partial
+  frames: number; // diagnostic: chunks collected
 }
 ```
 
-Completion is detected by a terminal `ok`, a quiet period, or a hard timeout.
-Timeouts are latency-class aware (`M109/M190/G29/M303` get minutes), and
-`{ waitMotion: true }` appends `M400` so a move returns on true completion, not
-queue-accept.
+Completion is detected by a trailing `ok` (after a short settle for the firmware's
+leading double-`ok`), a quiet period, or a hard timeout. Timeouts are
+latency-class aware (`M109/M190/G29/M303` get minutes), and `{ waitMotion: true }`
+appends `M400` so a move returns on true completion, not queue-accept.
+
+> Fully recovering a large reply that the firmware truncates needs a read
+> primitive the reference doesn't expose (the official app's "read last command
+> output"); until that's reverse-engineered, `truncated: true` is your signal
+> that `raw`/`fields` are incomplete.
 
 ## Typed errors → exit codes
 
