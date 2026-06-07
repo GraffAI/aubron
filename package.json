@@ -1,0 +1,35 @@
+{
+  "name": "aubron",
+  "private": true,
+  "type": "module",
+  "repository": "github:GraffAI/aubron",
+  "packageManager": "pnpm@11.5.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "new": "tsx scripts/gen.ts new",
+    "eject": "tsx scripts/gen.ts eject",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "turbo run build && changeset publish",
+    "prepare": "lefthook install"
+  },
+  "devDependencies": {
+    "@aubron/eslint-config": "workspace:*",
+    "@aubron/prettier-config": "workspace:*",
+    "@changesets/changelog-github": "^0.7.0",
+    "@changesets/cli": "^2.31.0",
+    "eslint": "catalog:",
+    "lefthook": "^2.1.9",
+    "prettier": "catalog:",
+    "tsx": "catalog:",
+    "turbo": "^2.9.16"
+  }
+}

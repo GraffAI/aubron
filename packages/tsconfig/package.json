@@ -1,0 +1,22 @@
+{
+  "name": "@aubron/tsconfig",
+  "version": "0.0.0",
+  "description": "Shared TypeScript configurations for @aubron packages.",
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "*.json"
+  ],
+  "exports": {
+    "./base.json": "./base.json",
+    "./lib.json": "./lib.json",
+    "./cli.json": "./cli.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

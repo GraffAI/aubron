@@ -1,0 +1,5 @@
+{
+  "bin": {
+    "__BIN__": "./dist/index.js"
+  }
+}
