@@ -1,0 +1,30 @@
+/**
+ * The AnkerMake MQTT broker presents a self-signed wildcard certificate for
+ * `*.ankermake.com` (issued 2022, valid to 2122). It is not chained to a public
+ * root, so TLS verification requires pinning this CA. Embedded verbatim from the
+ * reference's `ssl/ankermake-mqtt.crt` so the SDK can verify the broker without
+ * shipping a separate file.
+ */
+export const ANKERMAKE_MQTT_CA = `-----BEGIN CERTIFICATE-----
+MIIDwTCCAqmgAwIBAgIJAKrbZvWARI3BMA0GCSqGSIb3DQEBCwUAMHUxCzAJBgNV
+BAYTAkNOMREwDwYDVQQIDAhTaGVuemhlbjERMA8GA1UEBwwIU2hlbnpoZW4xEjAQ
+BgNVBAoMCWFua2VybWFrZTESMBAGA1UECwwJYW5rZXJtYWtlMRgwFgYDVQQDDA8q
+LmFua2VybWFrZS5jb20wIBcNMjIwNjE3MDMwNzU5WhgPMjEyMjA1MjQwMzA3NTla
+MHUxCzAJBgNVBAYTAkNOMREwDwYDVQQIDAhTaGVuemhlbjERMA8GA1UEBwwIU2hl
+bnpoZW4xEjAQBgNVBAoMCWFua2VybWFrZTESMBAGA1UECwwJYW5rZXJtYWtlMRgw
+FgYDVQQDDA8qLmFua2VybWFrZS5jb20wggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAw
+ggEKAoIBAQC8JWJzdVJFqrarK5oMCF8nI5QZ2nebs9df6CQHuSZCOmGCav5sDDFt
+5IGhQ6G44++YNexC10kwxy10fOzIT6cZWnQrYQPBfS0y7G+yu/GPe9vXMWwkIcWv
+hg8xAO+/m5C/QAj4BOVTXVl5spuBGX644P3eErV+tUDwb1U2K6mMzmaJ7SZqkmiw
+QKfTK1KxH7oczcxjDtdbNdtpa1Rm3IUCCI2eAOQTlDHlKGGM2T+e6qQRCUQYqkiY
+jG+3ugTzHMe6FMzOB1EjG0bZDemQwgUdBJexLgxrJe4jsVcuP75DfrV0NL/Drrmt
+uJax3V4tu5Yx1RQCWqGTNPOahpS+qD+NAgMBAAGjUjBQMA4GA1UdDwEB/wQEAwID
+iDATBgNVHSUEDDAKBggrBgEFBQcDATApBgNVHREEIjAggg1hbmtlcm1ha2UuY29t
+gg8qLmFua2VybWFrZS5jb20wDQYJKoZIhvcNAQELBQADggEBALF/VDyZ21IdFejE
+awLriK+Xo78k1yqf2YKWYSDMEJPXXHfbkHZTU0IL+K9kToN19sObuWPA1oE2iyKp
+h4nKVDjy56Ntgt5lXeSTN08jlD0PzuuGfzPVxMrky8sp14pFT+Kw2HOEMLU6Hxj0
+WjpprKRbl1oI8JoksYNzCSelIItokA8CI3/p1j5FyWxok99sVvNUfjG9iaV74Nuh
+kY/1nm0T0aMPZKpcS0xS0JwA0tsySdDJP5t1KgmDa5D0hIhXuAJWGwUvg15vSyme
+bk3IO48Nh8QOG8PwGebPus1nnvKCbG6+iJaWp/PqSqNCzx/Nht+Tfi413dIc3exF
+LX0ZR20=
+-----END CERTIFICATE-----`;

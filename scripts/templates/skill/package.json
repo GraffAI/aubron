@@ -1,0 +1,31 @@
+{
+  "name": "__PKG__",
+  "version": "0.0.0",
+  "description": "__DESCRIPTION__",
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    ".claude-plugin",
+    "skills",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "aubron-skill validate",
+    "lint": "prettier --check ."
+  },
+  "devDependencies": {
+    "@aubron/prettier-config": "workspace:*",
+    "@aubron/skill-tools": "workspace:*",
+    "prettier": "catalog:"
+  },
+  "aubronSkill": {
+    "source": "git-subdir"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -8,21 +8,40 @@ that's what lets a package eject into its own repo with no config rewriting.
 
 ## The commands that matter
 
-| Command                                    | What it does                                 |
-| ------------------------------------------ | -------------------------------------------- |
-| `pnpm new <name> --type <lib\|cli>`        | Scaffold a new publish-ready package.        |
-| `pnpm eject <name> [--push]`               | Copy a package out into a standalone repo.   |
-| `pnpm changeset`                           | Record release intent (the only local step). |
-| `pnpm turbo run build test lint typecheck` | Run everything (cached, dependency-ordered). |
-| `pnpm format` / `pnpm format:check`        | Prettier write / check.                      |
+| Command                                      | What it does                                 |
+| -------------------------------------------- | -------------------------------------------- |
+| `pnpm new <name> --type <lib\|cli\|skill>`   | Scaffold a new publish-ready package.        |
+| `pnpm eject <name> [--push]`                 | Copy a package out into a standalone repo.   |
+| `pnpm changeset`                             | Record release intent (the only local step). |
+| `pnpm turbo run build test lint typecheck`   | Run everything (cached, dependency-ordered). |
+| `pnpm format` / `pnpm format:check`          | Prettier write / check.                      |
+| `aubron-skill validate` / `sync-marketplace` | Validate a skill / refresh the marketplace.  |
 
 ## Where things live
 
 - `packages/*` — the config packages and shippable packages.
 - `scripts/gen.ts` — implements `new` and `eject`.
 - `scripts/templates/` — `package/` (base), `types/{lib,cli}/` (overlays),
-  `standalone/` (extra files an ejected repo gets).
+  `skill/` (skill package template), `standalone/` (ejected-repo extras).
+- `.claude-plugin/marketplace.json` — generated catalog of skill packages (the
+  `aubron` plugin marketplace). Never hand-edit; run `aubron-skill sync-marketplace`.
 - `pnpm-workspace.yaml` — workspaces **and the version catalog**.
+
+## Skills
+
+This repo also ships **Claude Agent Skills** as packages (see the `skill-factory`
+skill for the full runbook):
+
+- `pnpm new <name> --type skill` scaffolds a skill package — a `SKILL.md` plus a
+  `.claude-plugin/plugin.json`, published under `@aubron/*` and listed in the root
+  marketplace. Skill packages expose `test` (`aubron-skill validate`) + `lint`
+  (they're documentation, not TS, so they skip `build`/`typecheck`).
+- The marketplace uses **hybrid sources**: `git-subdir` by default (no publish),
+  `npm` for released skills (set `aubronSkill.source` in the package's package.json).
+  Users: `claude plugin marketplace add GraffAI/aubron` → `claude plugin install <name>@aubron`.
+- **Library-bundled skills** (e.g. `@aubron/ankerts-cli` ships an `ankerts`
+  skill under `skills/` + `ankerts skills install`) are the alternative for
+  shipping a skill _with_ a library. Never install skills via a `postinstall`.
 
 ## Conventions
 

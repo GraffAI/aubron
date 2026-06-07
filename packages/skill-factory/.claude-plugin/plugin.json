@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "skill-factory",
+  "description": "Author and release Claude Agent Skills in the @aubron package factory.",
+  "version": "0.0.0",
+  "author": {
+    "name": "Aubron Wood"
+  }
+}
