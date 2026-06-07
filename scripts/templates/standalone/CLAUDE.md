@@ -24,3 +24,14 @@ package factory. It inherits the same standards via published config packages
 - **No conventional commits.** Plain commit messages.
 - **Releases are CI-first**: run `pnpm changeset`, open a PR, merge. CI opens a
   Version Packages PR; merging it publishes to npm (provenance on).
+- **First publish is manual & local.** npm Trusted Publishing (OIDC) can only be
+  set up on a package that already exists, so bootstrap the first release by hand
+  once, then configure the trusted publisher and let CI take over:
+
+  ```sh
+  npm whoami   # authenticate (short-lived token or `npm login`)
+  pnpm changeset version && pnpm install
+  pnpm build
+  pnpm publish --access public --no-provenance --no-git-checks
+  git commit -am "Release initial version" && git push
+  ```

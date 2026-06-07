@@ -75,19 +75,68 @@ Lefthook, `CLAUDE.md`). The new repo inherits identical standards.
 > published to npm first (they're referenced by name). Publish from this
 > monorepo before ejecting consumers.
 
-## npm Trusted Publishing (OIDC)
+## Publishing
 
-Provenance is on (`publishConfig.provenance: true`) and the release workflow has
-`id-token: write`. Preferred auth is **npm Trusted Publishing**, so no
-long-lived token is stored:
+Auth is **npm Trusted Publishing (OIDC)** — no long-lived token is stored
+(npm caps tokens at 90 days, so we don't depend on one). Provenance is on
+(`publishConfig.provenance: true`) and the release workflow has `id-token: write`.
 
-1. Publish each package once (so it exists on npm).
-2. On npmjs.com → the package → **Settings → Trusted Publisher**, add this
-   GitHub repo and the `Release` workflow (`.github/workflows/release.yml`).
-3. Leave `NPM_TOKEN` unset. The OIDC exchange in CI authenticates the publish.
+### ⚠️ First publish of a package is a one-time MANUAL, LOCAL release
 
-To fall back to a token instead, add an `NPM_TOKEN` repo secret and uncomment the
-`NPM_TOKEN` line in `release.yml`.
+Trusted Publishing is configured **per package, on a package that already exists**
+on npm. A brand-new package can't be pre-trusted — so the very first publish of
+each `@aubron/*` package can't come from the tokenless CI flow. You have to
+bootstrap it by hand, once, from your machine. After that, CI does everything.
+
+The chicken-and-egg, concretely:
+
+```
+new package → CI publish needs OIDC → OIDC needs a trusted publisher
+→ trusted publisher needs the package to exist → package needs a publish ✋
+```
+
+**Bootstrap (run once, locally, from a clean `main` after the package is merged):**
+
+```sh
+# 1. Authenticate. A short-lived (≤90-day) granular token scoped to publish
+#    @aubron/* is plenty for a one-off — revoke it when you're done. Or `npm login`.
+npm whoami                      # confirm the right account / @aubron access
+
+# 2. Apply pending changesets → real versions (0.0.0 → 0.1.0) + changelogs
+pnpm changeset version
+pnpm install                    # refresh the lockfile after the bumps
+
+# 3. Build, then publish every public package. pnpm rewrites workspace:/catalog:
+#    to real ranges. --no-provenance because provenance can ONLY be generated
+#    from CI/OIDC; this first release simply won't have it (CI releases will).
+pnpm -r build
+pnpm -r publish --access public --no-provenance --no-git-checks
+
+# 4. Commit the version bumps so the repo matches npm, then push.
+#    There are no changesets left, so the release workflow is a no-op.
+git commit -am "Release initial versions"
+git push
+```
+
+> Order matters: publish (step 3) **before** pushing (step 4). Once the packages
+> exist on npm, the CI `changeset publish` would be a no-op anyway, but publishing
+> first avoids any race.
+
+### After the bootstrap — configure OIDC, then never touch tokens again
+
+1. On npmjs.com → each package → **Settings → Trusted Publisher** → add this
+   GitHub repo (`GraffAI/aubron`) and the `Release` workflow
+   (`.github/workflows/release.yml`).
+2. Revoke the bootstrap token.
+3. From now on the normal flow is fully tokenless and gets provenance: run
+   `pnpm changeset`, merge the PR, merge the Version Packages PR → CI publishes.
+
+> A token fallback still exists if you ever need it: add an `NPM_TOKEN` repo
+> secret and uncomment the `NPM_TOKEN` line in `release.yml`.
+
+> The same one-time bootstrap applies to **ejected** standalone repos, and the
+> `@aubron/*` config packages must be published (via this bootstrap) before any
+> ejected consumer can install — they're referenced by name.
 
 ## Conventions
 

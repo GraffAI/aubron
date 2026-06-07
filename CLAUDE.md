@@ -37,6 +37,11 @@ that's what lets a package eject into its own repo with no config rewriting.
 - **Every package** exposes `build` / `dev` / `test` / `lint` / `typecheck`.
 - **Releases are CI-first.** Locally you only `pnpm changeset`. Merging to
   `main` opens a Version Packages PR; merging that publishes (provenance on).
+- **First publish of any new package is a one-time MANUAL, LOCAL release.** npm
+  Trusted Publishing (OIDC) can only be configured on a package that already
+  exists, so the tokenless CI flow can't do the _first_ publish. Bootstrap it by
+  hand once — see the "First publish" section in [README](README.md) — then CI
+  takes over. Don't expect the first CI release of a brand-new package to work.
 - A `packages/**` change **requires a changeset** (enforced in CI).
 
 Ejected repos get their own `CLAUDE.md` from `scripts/templates/standalone/`.

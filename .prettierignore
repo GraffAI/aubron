@@ -2,6 +2,7 @@ node_modules
 dist
 .turbo
 coverage
+.claude
 pnpm-lock.yaml
 **/CHANGELOG.md
 
