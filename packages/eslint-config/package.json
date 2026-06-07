@@ -1,6 +1,6 @@
 {
   "name": "@aubron/eslint-config",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Shared ESLint flat configuration for @aubron packages.",
   "license": "MIT",
   "type": "module",

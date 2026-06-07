@@ -1,6 +1,6 @@
 {
   "name": "@aubron/skill-factory",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Author and release Claude Agent Skills in the @aubron package factory.",
   "license": "MIT",
   "type": "module",
