@@ -36,8 +36,18 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.head_ref }}
+          ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
+          # The automated "Version Packages" PR consumes changesets and adds
+          # none, so exempt it — this lets the guard be a required check without
+          # blocking releases. The job still runs (exits 0) so the required
+          # check reports success rather than "skipped".
+          if [ "$HEAD_REF" = "changeset-release/main" ] || [ "$ACTOR" = "github-actions[bot]" ]; then
+            echo "Release PR detected — changeset not required."
+            exit 0
+          fi
           changed() { git diff --name-only "$BASE" "$HEAD" -- "$1"; }
           pkg_changes="$(changed 'packages/**')"
           new_changesets="$(git diff --name-only --diff-filter=A "$BASE" "$HEAD" -- '.changeset/*.md' \
