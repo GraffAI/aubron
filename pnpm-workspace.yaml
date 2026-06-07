@@ -1,0 +1,16 @@
+packages:
+  - "packages/*"
+# pnpm 11 approves dependency build scripts via `allowBuilds` (replaces the old
+# onlyBuiltDependencies list) and reads settings here, not from package.json.
+allowBuilds:
+  esbuild: true
+  lefthook: true
+catalog:
+  typescript: ^6.0.3
+  tsup: ^8.5.1
+  vitest: ^4.1.8
+  eslint: ^10.4.1
+  "typescript-eslint": ^8.60.1
+  prettier: ^3.8.3
+  tsx: ^4.22.4
+  "@types/node": ^25.9.2

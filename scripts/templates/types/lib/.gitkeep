@@ -1,0 +1,2 @@
+# The base template (templates/package) already produces a library. This overlay
+# intentionally adds nothing; it exists so `--type lib` has a home to grow into.

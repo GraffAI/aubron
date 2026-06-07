@@ -1,0 +1,4 @@
+{
+  "extends": "@aubron/tsconfig/lib.json",
+  "include": ["src", "tsup.config.ts"]
+}

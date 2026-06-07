@@ -1,0 +1,10 @@
+node_modules
+dist
+.turbo
+coverage
+pnpm-lock.yaml
+**/CHANGELOG.md
+
+# Template markdown uses __PLACEHOLDER__ tokens, which Prettier would rewrite as
+# bold (**PLACEHOLDER**). Keep templates verbatim so gen.ts can substitute them.
+scripts/templates/**/*.md

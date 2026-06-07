@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm turbo run lint typecheck test build
+
+  changeset-guard:
+    # Required check: a PR that touches packages/** must add a changeset.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Require a changeset for package changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          changed() { git diff --name-only "$BASE" "$HEAD" -- "$1"; }
+          pkg_changes="$(changed 'packages/**')"
+          new_changesets="$(git diff --name-only --diff-filter=A "$BASE" "$HEAD" -- '.changeset/*.md' \
+            | grep -v '.changeset/README.md' || true)"
+          if [ -n "$pkg_changes" ] && [ -z "$new_changesets" ]; then
+            echo "::error::This PR changes packages/** but adds no changeset."
+            echo "Run 'pnpm changeset' and commit the generated file."
+            exit 1
+          fi
+          echo "Changeset guard passed."

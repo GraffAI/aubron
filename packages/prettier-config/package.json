@@ -1,0 +1,21 @@
+{
+  "name": "@aubron/prettier-config",
+  "version": "0.0.0",
+  "description": "Shared Prettier configuration for @aubron packages.",
+  "license": "MIT",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

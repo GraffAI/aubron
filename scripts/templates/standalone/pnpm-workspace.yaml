@@ -1,0 +1,6 @@
+# Single-package repo: no workspaces, but pnpm 11 reads settings from here
+# (the package.json "pnpm" field is no longer honored). `allowBuilds` approves
+# the dependency build scripts these tools need.
+allowBuilds:
+  esbuild: true
+  lefthook: true

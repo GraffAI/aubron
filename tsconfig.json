@@ -1,0 +1,4 @@
+{
+  "extends": "@aubron/tsconfig/base.json",
+  "include": []
+}
