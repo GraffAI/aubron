@@ -1,7 +1,7 @@
 /**
  * gen.ts — the package factory's one script.
  *
- *   pnpm new <name> --type <lib|cli> [--description "..."]
+ *   pnpm new <name> --type <lib|cli|skill> [--description "..."]
  *   pnpm eject <name> [--dest <dir>] [--push] [--private]
  *
  * Run via tsx. No interactive prompts (CI-friendly); all inputs are flags/args.
@@ -11,6 +11,12 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+
+import {
+  buildMarketplace,
+  discoverSkillPackages,
+  renderMarketplace,
+} from "../packages/skill-tools/src/marketplace.js";
 
 const SCOPE = "@aubron";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -118,7 +124,8 @@ function cmdNew(argv: string[]): void {
     fail(`invalid name "${name}" — use kebab-case, no scope`);
 
   const type = values.type ?? "lib";
-  if (type !== "lib" && type !== "cli") fail(`--type must be "lib" or "cli" (got "${type}")`);
+  if (type !== "lib" && type !== "cli" && type !== "skill")
+    fail(`--type must be "lib", "cli", or "skill" (got "${type}")`);
 
   const pkgDir = join(PACKAGES, name);
   if (existsSync(pkgDir)) fail(`packages/${name} already exists`);
@@ -131,6 +138,10 @@ function cmdNew(argv: string[]): void {
     __BIN__: values.bin ?? name,
     __YEAR__: String(new Date().getFullYear()),
   };
+
+  // Skills are documentation packages (a Claude plugin bundling a SKILL.md),
+  // not TypeScript build targets — they take a different path entirely.
+  if (type === "skill") return cmdNewSkill(name, pkgName, pkgDir, ctx);
 
   // 1. base template (everything except package.json, handled separately).
   mkdirSync(pkgDir, { recursive: true });
@@ -175,6 +186,60 @@ function cmdNew(argv: string[]): void {
   console.log(`  pnpm --filter ${pkgName} build`);
   console.log(`  pnpm --filter ${pkgName} test`);
   console.log(`  # edit packages/${name}/src/index.ts, then commit`);
+}
+
+/** Regenerate the root `.claude-plugin/marketplace.json` from skill packages. */
+function regenerateMarketplace(): void {
+  const repo = readJson(join(ROOT, "package.json")).repository;
+  const repoUrl =
+    typeof repo === "string"
+      ? `${repo.replace(/^github:/, "https://github.com/")}${repo.endsWith(".git") ? "" : ".git"}`
+      : undefined;
+  const infos = discoverSkillPackages(PACKAGES);
+  const content = renderMarketplace(buildMarketplace(infos, repoUrl ? { repoUrl } : {}));
+  mkdirSync(join(ROOT, ".claude-plugin"), { recursive: true });
+  writeFileSync(join(ROOT, ".claude-plugin", "marketplace.json"), content);
+  console.log(`→ updated .claude-plugin/marketplace.json (${infos.length} skills)`);
+}
+
+/** Scaffold a Claude Agent Skill package (SKILL.md + plugin manifest). */
+function cmdNewSkill(
+  name: string,
+  pkgName: string,
+  pkgDir: string,
+  ctx: Record<string, string>,
+): void {
+  const skillTemplate = join(TEMPLATES, "skill");
+
+  // Copy the template tree, except SKILL.md (which lands under skills/<name>/).
+  mkdirSync(pkgDir, { recursive: true });
+  copyTree(skillTemplate, pkgDir, ctx, (n) => n === "SKILL.md");
+
+  // Place the skill at skills/<name>/SKILL.md (the plugin's default skills dir).
+  const skillDir = join(pkgDir, "skills", name);
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(
+    join(skillDir, "SKILL.md"),
+    render(readFileSync(join(skillTemplate, "SKILL.md"), "utf8"), ctx),
+  );
+
+  // Starter changeset (minor bump → first publish is automatic).
+  writeFileSync(
+    join(ROOT, ".changeset", `${name}-init.md`),
+    `---\n"${pkgName}": minor\n---\n\nInitial release of ${pkgName}.\n`,
+  );
+
+  regenerateMarketplace();
+
+  console.log(`→ pnpm install`);
+  run("pnpm", ["install"], ROOT);
+
+  console.log(`\n✔ Created packages/${name} (${pkgName}, type: skill)`);
+  console.log(`\nNext:`);
+  console.log(`  # edit packages/${name}/skills/${name}/SKILL.md`);
+  console.log(`  pnpm --filter ${pkgName} test    # validate the skill`);
+  console.log(`  # install it: claude plugin marketplace add GraffAI/aubron`);
+  console.log(`  #             claude plugin install ${name}@aubron`);
 }
 
 /** Yield every file path under `dir`, recursively. */
@@ -239,6 +304,10 @@ function cmdEject(argv: string[]): void {
   const pkgDir = join(PACKAGES, name);
   if (!existsSync(pkgDir)) fail(`packages/${name} does not exist`);
 
+  // Skill packages are documentation plugins (no TS build/typecheck), so their
+  // standalone scripts + CI differ from a code package's.
+  const isSkill = existsSync(join(pkgDir, ".claude-plugin", "plugin.json"));
+
   const dest = values.dest ? resolve(values.dest) : resolve(ROOT, "..", name);
   if (existsSync(dest) && readdirSync(dest).length > 0)
     fail(`destination ${dest} exists and is not empty`);
@@ -268,7 +337,8 @@ function cmdEject(argv: string[]): void {
     format: "prettier --write .",
     "format:check": "prettier --check .",
     changeset: "changeset",
-    release: "pnpm build && changeset publish",
+    // Skills have no build step; code packages build before publishing.
+    release: isSkill ? "changeset publish" : "pnpm build && changeset publish",
     prepare: "lefthook install",
   };
 
@@ -301,6 +371,20 @@ function cmdEject(argv: string[]): void {
     __YEAR__: String(new Date().getFullYear()),
   };
   copyTree(join(TEMPLATES, "standalone"), dest, ctx);
+
+  // 5b. a skill has no build/typecheck — drop those CI steps so the ejected
+  //     repo's workflows match the scripts it actually exposes.
+  if (isSkill) {
+    for (const wf of ["ci.yml", "release.yml"]) {
+      const wfPath = join(dest, ".github", "workflows", wf);
+      if (!existsSync(wfPath)) continue;
+      const filtered = readFileSync(wfPath, "utf8")
+        .split("\n")
+        .filter((line) => !/^\s*- run: pnpm (build|typecheck)\s*$/.test(line))
+        .join("\n");
+      writeFileSync(wfPath, filtered);
+    }
+  }
 
   // 6. init git.
   run("git", ["init", "-q", "-b", "main"], dest);

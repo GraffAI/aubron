@@ -1,0 +1,44 @@
+{
+  "name": "@aubron/ankerts",
+  "version": "0.0.0",
+  "description": "Agent-first TypeScript SDK for AnkerMake / eufyMake M5 printers (MQTT gcode, PPPP upload, HTTPS login).",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "mqtt": "^5.10.1"
+  },
+  "devDependencies": {
+    "@aubron/eslint-config": "workspace:*",
+    "@aubron/prettier-config": "workspace:*",
+    "@aubron/tsconfig": "workspace:*",
+    "@aubron/tsup-config": "workspace:*",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

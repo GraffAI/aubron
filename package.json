@@ -2,6 +2,7 @@
   "name": "aubron",
   "private": true,
   "type": "module",
+  "repository": "github:GraffAI/aubron",
   "packageManager": "pnpm@11.5.2",
   "engines": {
     "node": ">=22"

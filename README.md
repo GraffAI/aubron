@@ -17,17 +17,26 @@ packages/
   eslint-config/   @aubron/eslint-config   — flat ESLint config
   prettier-config/ @aubron/prettier-config — Prettier config
   tsup-config/     @aubron/tsup-config     — tsup build preset
-  greet/           @aubron/greet           — example CLI (proves the system)
+  skill-tools/     @aubron/skill-tools     — validate + release Claude skills
+  skill-factory/   @aubron/skill-factory   — meta-skill: how to author/ship skills
+  ankerts/         @aubron/ankerts         — AnkerMake/eufyMake M5 SDK
+  ankerts-cli/     @aubron/ankerts-cli     — `ankerts` CLI (thin shell over the SDK)
 scripts/gen.ts     — `new` + `eject` commands; templates/ alongside
+.claude-plugin/marketplace.json — generated catalog of the skill packages
 ```
 
 ## Create a package
 
 ```sh
-pnpm new <name> --type <lib|cli> [--description "..."]
+pnpm new <name> --type <lib|cli|skill> [--description "..."]
 pnpm new color --type lib
 pnpm new todo --type cli --description "A todo CLI"
+pnpm new my-skill --type skill --description "What it does + when to use it"
 ```
+
+`--type skill` scaffolds a Claude Agent Skill (a `SKILL.md` + a plugin manifest)
+and wires it into the `aubron` plugin marketplace. See the `skill-factory` skill
+for the full author → validate → release runbook.
 
 This scaffolds `packages/<name>`, fully configured and publish-eligible, drops a
 starter changeset, and runs `pnpm install` to link it. Then:
@@ -61,7 +70,7 @@ The only local action is declaring intent:
 
 ```sh
 pnpm eject <name> [--dest <dir>] [--push] [--private]
-pnpm eject greet --push
+pnpm eject ankerts --push
 ```
 
 Eject is **copy-out only** (it never mutates the source package). It rewrites
