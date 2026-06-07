@@ -353,6 +353,13 @@ export class AnkerClient {
     opts: {
       start?: boolean;
       transport?: "lan" | "auto";
+      /**
+       * Auto-fix the LCD ETA/filament display by transcoding a third-party
+       * slicer's embedded estimate into the Anker `;TIME:` header. ON by default
+       * (it auto-detects: a no-op on natively-sliced files, which already carry
+       * `;TIME:`). Operates on a copy — never mutates the file. Set `false` to
+       * upload the file byte-for-byte untouched.
+       */
       fixMetadata?: boolean;
       filename?: string;
       onProgress?: (p: UploadProgress) => void;
@@ -377,7 +384,8 @@ export class AnkerClient {
       data = file;
     }
 
-    if (opts.fixMetadata) {
+    // Auto-fix slicer metadata by default (no-op on native files; copy only).
+    if (opts.fixMetadata !== false) {
       const transcoded = transcodeMetadata(data.toString("utf8"));
       if (transcoded.changed) {
         this.log(`transcoder: injected Anker metadata (${JSON.stringify(transcoded.injected)})`);

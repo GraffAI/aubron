@@ -48,17 +48,19 @@ const print: CommandSpec = defineCommand({
     "Upload progress streams as NDJSON on stderr. `print` returns a job handle by default " +
     "(it does NOT hold the process for the whole print) — use --wait-start to block until " +
     "the job actually starts, or detach and poll with `printer wait --until complete`. " +
-    "--fix-metadata transcodes a third-party slicer's embedded time/filament estimate into " +
-    "the Anker header so the LCD ETA is correct (operates on a copy; never mutates your file).",
+    "By DEFAULT it auto-fixes the LCD ETA: a third-party slicer's embedded time/filament " +
+    "estimate is transcoded into the Anker `;TIME:` header (auto-detected — a no-op on " +
+    "natively-sliced files; always on a copy, never mutating your file). Pass " +
+    "--no-fix-metadata to upload the file byte-for-byte untouched.",
   transport: "pppp",
   args: [{ name: "file.gcode", description: "Path to the gcode file to upload.", required: true }],
   flags: [
     { name: "no-start", type: "boolean", description: "Upload only; don't start the print." },
     { name: "transport", type: "string", description: "lan | auto (default auto; LAN only here)." },
     {
-      name: "fix-metadata",
+      name: "no-fix-metadata",
       type: "boolean",
-      description: "Transcode slicer metadata for a correct LCD ETA.",
+      description: "Upload the file untouched (skip the automatic slicer-metadata ETA fix).",
     },
     {
       name: "wait-start",
@@ -84,8 +86,8 @@ const print: CommandSpec = defineCommand({
       output: "Run `ankerts discover --store` while on the same LAN as the printer, then retry.",
     },
     {
-      description: "Fix the LCD ETA for an OrcaSlicer file",
-      cmd: "ankerts print tower.gcode --fix-metadata",
+      description: "Upload an OrcaSlicer file untouched (no automatic ETA fix)",
+      cmd: "ankerts print tower.gcode --no-fix-metadata",
     },
   ],
   async run(ctx) {
@@ -98,7 +100,7 @@ const print: CommandSpec = defineCommand({
         action: "print",
         file,
         start: !flagBool(ctx.args, "no-start"),
-        fixMetadata: flagBool(ctx.args, "fix-metadata"),
+        fixMetadata: !flagBool(ctx.args, "no-fix-metadata"),
       });
       return;
     }
