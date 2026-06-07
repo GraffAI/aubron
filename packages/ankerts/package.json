@@ -1,6 +1,6 @@
 {
   "name": "@aubron/ankerts",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Agent-first TypeScript SDK for AnkerMake / eufyMake M5 printers (MQTT gcode, PPPP upload, HTTPS login).",
   "license": "MIT",
   "type": "module",

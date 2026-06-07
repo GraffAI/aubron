@@ -1,6 +1,6 @@
 {
   "name": "@aubron/skill-tools",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Validate and release Claude Agent Skills from the @aubron package factory.",
   "license": "MIT",
   "type": "module",

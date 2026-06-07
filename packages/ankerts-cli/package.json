@@ -1,6 +1,6 @@
 {
   "name": "@aubron/ankerts-cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Agent-first CLI for AnkerMake / eufyMake M5 printers — a thin shell over @aubron/ankerts.",
   "license": "MIT",
   "type": "module",
