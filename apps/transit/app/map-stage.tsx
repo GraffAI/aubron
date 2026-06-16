@@ -1,10 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { LINE_COLORS, type RGBA } from "./lib/theme";
 import type { Vehicle } from "./lib/transit";
+import { TripPanel } from "./trip-panel";
 
 // deck.gl needs WebGL + window, so it must never render on the server.
 const TransitDeck = dynamic(() => import("./deck").then((m) => m.TransitDeck), {
@@ -26,6 +27,23 @@ const LINES: { name: string; color: RGBA }[] = [
 export function MapStage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selected, setSelected] = useState<Vehicle | null>(null);
+  const deepLinked = useRef(false);
+
+  useEffect(() => {
+    if (vehicles.length === 0) return;
+    // ?trip=<id> deep-links straight to a train (shareable), applied once.
+    if (!deepLinked.current) {
+      deepLinked.current = true;
+      const want = new URLSearchParams(window.location.search).get("trip");
+      const v = want ? vehicles.find((x) => x.tripId === want) : undefined;
+      if (v) {
+        setSelected(v);
+        return;
+      }
+    }
+    // Keep the open train's live status (position, deviation) fresh each poll.
+    setSelected((cur) => (cur ? (vehicles.find((x) => x.tripId === cur.tripId) ?? cur) : cur));
+  }, [vehicles]);
 
   const counts = useMemo(() => {
     const m = new Map<string, number>();
@@ -73,39 +91,7 @@ export function MapStage() {
         </div>
       </div>
 
-      {selected && <SelectionChip v={selected} onClose={() => setSelected(null)} />}
+      {selected && <TripPanel vehicle={selected} onClose={() => setSelected(null)} />}
     </main>
-  );
-}
-
-function SelectionChip({ v, onClose }: { v: Vehicle; onClose: () => void }) {
-  const color = LINE_COLORS[v.shortName] ?? ([150, 170, 190, 220] as RGBA);
-  const dev = Math.round(v.deviation / 60);
-  const status =
-    Math.abs(v.deviation) < 60 ? "on time" : dev > 0 ? `${dev} min late` : `${-dev} min early`;
-
-  return (
-    <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
-      <div className="flex items-center gap-3 rounded-full border border-white/10 bg-black/60 py-2 pl-3 pr-2 text-sm backdrop-blur">
-        <span
-          className="inline-block h-2.5 w-2.5 rounded-full"
-          style={{ background: rgba(color), boxShadow: `0 0 8px ${rgba(color)}` }}
-        />
-        <span className="font-medium text-white/90">{v.shortName}</span>
-        <span className="max-w-[40vw] truncate text-white/55">{v.headsign}</span>
-        <span className="text-white/35">·</span>
-        <span className={Math.abs(v.deviation) < 60 ? "text-emerald-300/80" : "text-amber-300/80"}>
-          {status}
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="ml-1 grid h-6 w-6 place-items-center rounded-full text-white/40 hover:bg-white/10 hover:text-white/80"
-          aria-label="Clear selection"
-        >
-          ✕
-        </button>
-      </div>
-    </div>
   );
 }

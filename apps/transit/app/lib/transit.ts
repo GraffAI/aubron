@@ -49,6 +49,27 @@ export interface Vehicle {
   headsign: string;
 }
 
+/** One upcoming stop on a selected trip, with its predicted arrival. */
+export interface TripStop {
+  stopId: string;
+  name: string;
+  /** Scheduled arrival, epoch ms. */
+  scheduled: number;
+  /** Predicted arrival (scheduled + live deviation), epoch ms. */
+  predicted: number;
+  /** Whole minutes until predicted arrival (can be negative if due/passed). */
+  minutesAway: number;
+  /** True for the train's immediate next stop. */
+  isNext: boolean;
+}
+
+/** A selected trip's live deviation + ordered upcoming stops. */
+export interface TripDetail {
+  tripId: string;
+  deviation: number;
+  stops: TripStop[];
+}
+
 /** GTFS route_type → our coarse mode. 0 = tram/light rail/streetcar, 2 = rail. */
 export function modeFromType(type: number): Mode {
   if (type === 0) return "light-rail";
