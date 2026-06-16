@@ -126,51 +126,99 @@ interface ObaTrip {
     orientation?: number;
     scheduleDeviation?: number;
     occupancyStatus?: string;
+    occupancyCount?: number;
+    occupancyCapacity?: number;
+    lastLocationUpdateTime?: number;
     predicted?: boolean;
   };
+}
+
+interface ObaTripRef {
+  id: string;
+  routeId?: string;
+  tripHeadsign?: string;
+}
+
+interface TripsResponse {
+  list: ObaTrip[];
+  references: { trips: ObaTripRef[]; routes: ObaRoute[] };
+}
+
+/**
+ * Build a Vehicle from a trip using its TRUE route (from references), not the
+ * route we happened to query — trips-for-route mixes in trains from other routes
+ * that share track (e.g. a 1 Line train shows up under the 2 Line query). `now`
+ * is the server clock for an accurate GPS-age.
+ */
+function toVehicle(trip: ObaTrip, route: ObaRoute, headsign: string, now: number): Vehicle | null {
+  const s = trip.status;
+  const pos = s?.position ?? s?.lastKnownLocation;
+  if (!pos || (pos.lat === 0 && pos.lon === 0)) return null;
+  const updated = s?.lastLocationUpdateTime;
+  return {
+    id: trip.tripId,
+    tripId: trip.tripId,
+    routeId: route.id,
+    shortName: route.shortName ?? route.id,
+    mode: modeFromType(route.type),
+    lon: pos.lon,
+    lat: pos.lat,
+    heading: orientationToHeading(s?.orientation ?? 0),
+    deviation: s?.scheduleDeviation ?? 0,
+    occupancy: s?.occupancyStatus ?? "",
+    occupancyCount: s?.occupancyCount,
+    occupancyCapacity: s?.occupancyCapacity,
+    gpsAgeSec: updated ? Math.max(0, Math.round((now - updated) / 1000)) : undefined,
+    predicted: s?.predicted ?? false,
+    headsign: headsign || route.longName || "",
+  };
+}
+
+/**
+ * Collect vehicles from a set of trips-for-route queries into a tripId-keyed map,
+ * labelling each by its real route and keeping only routes that pass `keepRoute`.
+ * Deduping by tripId means a train returned under several route queries lands once.
+ */
+async function collectVehicles(
+  routeIds: string[],
+  keepRoute: (r: ObaRoute) => boolean,
+): Promise<Map<string, Vehicle>> {
+  const byTrip = new Map<string, Vehicle>();
+  await Promise.all(
+    routeIds.map(async (routeId) => {
+      let data: TripsResponse;
+      try {
+        data = await obaGet<TripsResponse>(`trips-for-route/${routeId}`, {
+          includeStatus: "true",
+          includeSchedule: "false",
+        });
+      } catch (err) {
+        console.error(`trips-for-route ${routeId} failed`, err);
+        return;
+      }
+      const now = Date.now();
+      const trips = new Map(data.references.trips.map((t) => [t.id, t]));
+      const routes = new Map(data.references.routes.map((r) => [r.id, r]));
+      for (const trip of data.list) {
+        const ref = trips.get(trip.tripId);
+        const route = ref?.routeId ? routes.get(ref.routeId) : undefined;
+        if (!route || !keepRoute(route)) continue;
+        const v = toVehicle(trip, route, ref?.tripHeadsign ?? "", now);
+        if (v) byTrip.set(trip.tripId, v);
+      }
+    }),
+  );
+  return byTrip;
 }
 
 /** Live vehicle positions across all rail routes. */
 export async function getVehicles(): Promise<Vehicle[]> {
   const routes = await getRailRoutes();
-  const byRoute = await Promise.all(
-    routes.map(async (route): Promise<Vehicle[]> => {
-      let data;
-      try {
-        data = await obaGet<{
-          list: ObaTrip[];
-          references: { trips: { id: string; tripHeadsign?: string }[] };
-        }>(`trips-for-route/${route.id}`, { includeStatus: "true", includeSchedule: "false" });
-      } catch (err) {
-        console.error(`trips-for-route ${route.id} failed`, err);
-        return [];
-      }
-
-      const headsigns = new Map(data.references.trips.map((t) => [t.id, t.tripHeadsign ?? ""]));
-
-      return data.list.flatMap((trip): Vehicle[] => {
-        const pos = trip.status?.position ?? trip.status?.lastKnownLocation;
-        if (!pos || (pos.lat === 0 && pos.lon === 0)) return [];
-        return [
-          {
-            id: trip.tripId,
-            tripId: trip.tripId,
-            routeId: route.id,
-            shortName: route.shortName,
-            mode: route.mode,
-            lon: pos.lon,
-            lat: pos.lat,
-            heading: orientationToHeading(trip.status?.orientation ?? 0),
-            deviation: trip.status?.scheduleDeviation ?? 0,
-            occupancy: trip.status?.occupancyStatus ?? "",
-            predicted: trip.status?.predicted ?? false,
-            headsign: headsigns.get(trip.tripId) ?? route.longName,
-          },
-        ];
-      });
-    }),
+  const byTrip = await collectVehicles(
+    routes.map((r) => r.id),
+    (r) => isRailType(r.type),
   );
-  return byRoute.flat();
+  return [...byTrip.values()];
 }
 
 interface ObaTripDetails {
@@ -244,43 +292,16 @@ export async function getAreaBuses(
     },
     300,
   );
-  const busRoutes = area.list.filter((r) => r.type === 3).slice(0, 25);
+  const busRouteIds = area.list
+    .filter((r) => r.type === 3)
+    .slice(0, 25)
+    .map((r) => r.id);
   const latPad = latSpan / 2 + 0.01;
   const lonPad = lonSpan / 2 + 0.01;
 
-  const perRoute = await Promise.all(
-    busRoutes.map(async (route): Promise<Vehicle[]> => {
-      try {
-        const td = await obaGet<{
-          list: ObaTrip[];
-          references: { trips: { id: string; tripHeadsign?: string }[] };
-        }>(`trips-for-route/${route.id}`, { includeStatus: "true", includeSchedule: "false" });
-        const heads = new Map(td.references.trips.map((t) => [t.id, t.tripHeadsign ?? ""]));
-        return td.list.flatMap((trip): Vehicle[] => {
-          const pos = trip.status?.position ?? trip.status?.lastKnownLocation;
-          if (!pos || (pos.lat === 0 && pos.lon === 0)) return [];
-          if (Math.abs(pos.lat - lat) > latPad || Math.abs(pos.lon - lon) > lonPad) return [];
-          return [
-            {
-              id: trip.tripId,
-              tripId: trip.tripId,
-              routeId: route.id,
-              shortName: route.shortName ?? route.id,
-              mode: "bus",
-              lon: pos.lon,
-              lat: pos.lat,
-              heading: orientationToHeading(trip.status?.orientation ?? 0),
-              deviation: trip.status?.scheduleDeviation ?? 0,
-              occupancy: trip.status?.occupancyStatus ?? "",
-              predicted: trip.status?.predicted ?? false,
-              headsign: heads.get(trip.tripId) ?? route.longName ?? "",
-            },
-          ];
-        });
-      } catch {
-        return [];
-      }
-    }),
+  // Label by true route + dedupe, then keep only buses actually inside the box.
+  const byTrip = await collectVehicles(busRouteIds, (r) => r.type === 3);
+  return [...byTrip.values()].filter(
+    (v) => Math.abs(v.lat - lat) <= latPad && Math.abs(v.lon - lon) <= lonPad,
   );
-  return perRoute.flat();
 }

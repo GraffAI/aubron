@@ -45,6 +45,11 @@ export interface Vehicle {
   /** Schedule deviation in seconds: + = late, − = early. */
   deviation: number;
   occupancy: string;
+  /** Live passenger count / capacity, when the agency reports them. */
+  occupancyCount?: number;
+  occupancyCapacity?: number;
+  /** Seconds since the last GPS fix (for fading stale vehicles). */
+  gpsAgeSec?: number;
   predicted: boolean;
   headsign: string;
 }
