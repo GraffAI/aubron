@@ -10,7 +10,7 @@ import {
   ScatterplotLayer,
   WebMercatorViewport,
 } from "deck.gl";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { type Basemap, loadBasemap } from "./lib/basemap";
 import { COLORS, LINE_COLORS, type RGBA } from "./lib/theme";
@@ -22,16 +22,16 @@ import {
   type StopInfo,
   type Vehicle,
 } from "./lib/transit";
+import { usePageVisible, useSmoothPositions } from "./lib/useSmoothPositions";
 
-// The live feed only refreshes a vehicle's GPS every ~25-30s (measured), so the
-// data sits still then jumps. We poll a bit faster than that to catch updates
-// promptly, and tween over ~the update gap so motion looks continuous instead of
-// teleporting. Polling faster than this would mostly fetch identical data.
+// The live feed only refreshes a vehicle's GPS every ~25-30s (measured), so we
+// poll a touch faster to catch updates, and interpolate over ~the update gap so
+// motion is continuous. Interpolation is keyed by tripId in useSmoothPositions
+// (not deck's index-based transitions, which swap vehicles when the set changes).
 const RAIL_POLL_MS = 15_000;
 const BUS_POLL_MS = 20_000;
 const POSITION_TWEEN_MS = 26_000;
 
-// Directional arrowhead (points "up" = north by default; rotated by heading).
 const ARROW_ICON = `data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M12 2 L20.5 22 L12 17 L3.5 22 Z" fill="white"/></svg>',
 )}`;
@@ -72,10 +72,9 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [buses, setBuses] = useState<Vehicle[]>([]);
   const viewRef = useRef<ViewState>(INITIAL_VIEW_STATE);
+  const visible = usePageVisible();
 
-  // Keep parent callbacks in refs so our effects/fetchers stay stable — passing
-  // an inline `onBuses` used to re-create fetchBuses every render, which spun the
-  // bus effect into a refetch loop (the thread thrash made the whole map janky).
+  // Parent callbacks in refs → stable effects/fetchers (no refetch loops).
   const onVehiclesRef = useRef(onVehicles);
   onVehiclesRef.current = onVehicles;
   const onBusesRef = useRef(onBuses);
@@ -96,8 +95,9 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
     return () => c.abort();
   }, []);
 
-  // Rail vehicles, network-wide, every 15s.
+  // Rail vehicles, network-wide — only while the tab is foregrounded.
   useEffect(() => {
+    if (!visible) return;
     let active = true;
     const tick = async () => {
       try {
@@ -118,9 +118,9 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
       active = false;
       clearInterval(id);
     };
-  }, []);
+  }, [visible]);
 
-  // Viewport buses — only while the Buses filter is on. Stable (no prop deps).
+  // Viewport buses — stable (no prop deps), guarded against stale results.
   const fetchBuses = useCallback(async () => {
     const v = viewRef.current;
     const vp = new WebMercatorViewport({
@@ -156,22 +156,28 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
       onBusesRef.current?.([]);
       return;
     }
+    if (!visible) return;
     void fetchBuses();
     const id = setInterval(() => void fetchBuses(), BUS_POLL_MS);
     return () => clearInterval(id);
-  }, [filter.buses, fetchBuses]);
+  }, [filter.buses, fetchBuses, visible]);
 
   // Pan/zoom: remember the view, and (debounced) refetch buses for the new area.
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Smooth, tripId-keyed interpolation (the fix for trains flying across).
+  const railSmooth = useSmoothPositions(vehicles, POSITION_TWEEN_MS);
+  const busSmooth = useSmoothPositions(buses, POSITION_TWEEN_MS);
+
   const passOnTime = (v: Vehicle) => !filter.onTimeOnly || isOnTime(v.deviation);
-  const railShown = vehicles.filter((v) => filter.lines.has(v.shortName) && passOnTime(v));
-  const busShown = filter.buses ? buses.filter(passOnTime) : [];
+  const railShown = railSmooth.filter((v) => filter.lines.has(v.shortName) && passOnTime(v));
+  const busShown = filter.buses ? busSmooth.filter(passOnTime) : [];
 
-  const layers = [];
-
-  if (base) {
-    layers.push(
+  // Static layers don't change per animation frame — memoize so only the vehicle
+  // layers rebuild at 60fps.
+  const baseLayers = useMemo(() => {
+    if (!base) return [];
+    return [
       new GeoJsonLayer({
         id: "water",
         data: base.water,
@@ -203,15 +209,16 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
         getLineWidth: 1.1,
         lineWidthMinPixels: 0.8,
       }),
-    );
-  }
+    ];
+  }, [base]);
 
-  if (net) {
-    const shownLineShapes = net.shapes.filter((sh) => filter.lines.has(sh.shortName));
-    layers.push(
+  const routeLayers = useMemo(() => {
+    if (!net) return [];
+    const shown = net.shapes.filter((sh) => filter.lines.has(sh.shortName));
+    return [
       new PathLayer<ShapeLine>({
         id: "routes-glow",
-        data: shownLineShapes,
+        data: shown,
         getPath: (d) => d.path,
         getColor: (d) => {
           const [r, g, b] = lineColor(d.shortName);
@@ -224,7 +231,7 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
       }),
       new PathLayer<ShapeLine>({
         id: "routes",
-        data: shownLineShapes,
+        data: shown,
         getPath: (d) => d.path,
         getColor: (d) => lineColor(d.shortName),
         widthUnits: "pixels",
@@ -246,16 +253,17 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
         lineWidthUnits: "pixels",
         getLineWidth: 1,
       }),
-    );
-  }
+    ];
+  }, [net, filter.lines]);
 
-  // Buses sit beneath rail so trains stay the headline.
   const selectVehicle = (info: PickingInfo<Vehicle>) => {
     onSelect?.(info.object ?? null);
     return true;
   };
 
-  layers.push(
+  // Vehicle layers — positions already interpolated by useSmoothPositions, so no
+  // deck transitions here (those are index-based and caused the swapping).
+  const vehicleLayers = [
     new ScatterplotLayer<Vehicle>({
       id: "buses",
       data: busShown,
@@ -266,8 +274,6 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
       radiusMinPixels: 2,
       getFillColor: (d) => [BUS_COLOR[0], BUS_COLOR[1], BUS_COLOR[2], staleAlpha(d)],
       stroked: false,
-      // No position tween: bus membership churns as you pan/zoom, and deck's
-      // index-matched transitions would slide dots between unrelated buses.
       onClick: selectVehicle,
     }),
     new ScatterplotLayer<Vehicle>({
@@ -280,9 +286,7 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
         const [r, g, b] = lineColor(d.shortName);
         return [r, g, b, 55];
       },
-      transitions: { getPosition: { duration: POSITION_TWEEN_MS } },
     }),
-    // Rail vehicles as directional chevrons pointing along their heading.
     new IconLayer<Vehicle>({
       id: "vehicles",
       data: railShown,
@@ -303,18 +307,13 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
         return [r, g, b, staleAlpha(d)];
       },
       getAngle: (d) => -d.heading, // icon points north at 0; heading is CW from north
-      billboard: false,
-      transitions: {
-        getPosition: { duration: POSITION_TWEEN_MS },
-        getAngle: { duration: 800 },
-      },
       onClick: selectVehicle,
     }),
-  );
+  ];
 
   return (
     <DeckGL
-      layers={layers}
+      layers={[...baseLayers, ...routeLayers, ...vehicleLayers]}
       views={new MapView({ repeat: false })}
       initialViewState={INITIAL_VIEW_STATE}
       controller={{ dragRotate: false }}
