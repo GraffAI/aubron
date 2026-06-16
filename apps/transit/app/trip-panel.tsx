@@ -10,6 +10,28 @@ const FALLBACK: RGBA = [150, 170, 190, 220];
 
 const eta = (min: number): string => (min <= 0 ? "due" : `${min} min`);
 
+const OCCUPANCY: Record<string, string> = {
+  EMPTY: "Empty",
+  MANY_SEATS_AVAILABLE: "Light",
+  FEW_SEATS_AVAILABLE: "Some seats",
+  STANDING_ROOM_ONLY: "Standing room",
+  CRUSHED_STANDING_ROOM_ONLY: "Packed",
+  FULL: "Full",
+  NOT_ACCEPTING_PASSENGERS: "Not boarding",
+};
+
+function occupancyLabel(v: Vehicle): string | null {
+  const word = OCCUPANCY[v.occupancy];
+  const hasCount =
+    typeof v.occupancyCount === "number" &&
+    v.occupancyCount >= 0 &&
+    typeof v.occupancyCapacity === "number" &&
+    v.occupancyCapacity > 0;
+  if (!word && !hasCount) return null;
+  if (word && hasCount) return `${word} · ${v.occupancyCount}/${v.occupancyCapacity}`;
+  return word ?? `${v.occupancyCount}/${v.occupancyCapacity}`;
+}
+
 export function TripPanel({ vehicle, onClose }: { vehicle: Vehicle; onClose: () => void }) {
   const [trip, setTrip] = useState<TripDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,6 +83,9 @@ export function TripPanel({ vehicle, onClose }: { vehicle: Vehicle; onClose: () 
             {status}
             {vehicle.predicted ? "" : " · scheduled"}
           </div>
+          {occupancyLabel(vehicle) && (
+            <div className="mt-0.5 text-[11px] text-white/45">{occupancyLabel(vehicle)}</div>
+          )}
         </div>
         <button
           type="button"

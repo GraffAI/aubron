@@ -2,7 +2,14 @@
 
 import DeckGL from "@deck.gl/react";
 import type { PickingInfo } from "deck.gl";
-import { GeoJsonLayer, MapView, PathLayer, ScatterplotLayer, WebMercatorViewport } from "deck.gl";
+import {
+  GeoJsonLayer,
+  IconLayer,
+  MapView,
+  PathLayer,
+  ScatterplotLayer,
+  WebMercatorViewport,
+} from "deck.gl";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { type Basemap, loadBasemap } from "./lib/basemap";
@@ -15,6 +22,22 @@ import {
   type StopInfo,
   type Vehicle,
 } from "./lib/transit";
+
+// The live feed only refreshes a vehicle's GPS every ~25-30s (measured), so the
+// data sits still then jumps. We poll a bit faster than that to catch updates
+// promptly, and tween over ~the update gap so motion looks continuous instead of
+// teleporting. Polling faster than this would mostly fetch identical data.
+const RAIL_POLL_MS = 15_000;
+const BUS_POLL_MS = 20_000;
+const POSITION_TWEEN_MS = 26_000;
+
+// Directional arrowhead (points "up" = north by default; rotated by heading).
+const ARROW_ICON = `data:image/svg+xml;utf8,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M12 2 L20.5 22 L12 17 L3.5 22 Z" fill="white"/></svg>',
+)}`;
+
+// Fade vehicles whose GPS has gone stale (lost signal / parked off-grid).
+const staleAlpha = (v: Vehicle): number => (v.gpsAgeSec && v.gpsAgeSec > 150 ? 110 : 255);
 
 const INITIAL_VIEW_STATE = {
   longitude: -122.33,
@@ -80,7 +103,7 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
       }
     };
     void tick();
-    const id = setInterval(() => void tick(), 15000);
+    const id = setInterval(() => void tick(), RAIL_POLL_MS);
     return () => {
       active = false;
       clearInterval(id);
@@ -123,7 +146,7 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
       return;
     }
     void fetchBuses();
-    const id = setInterval(() => void fetchBuses(), 20000);
+    const id = setInterval(() => void fetchBuses(), BUS_POLL_MS);
     return () => clearInterval(id);
   }, [filter.buses, fetchBuses, onBuses]);
 
@@ -230,9 +253,9 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
       getRadius: 2.8,
       radiusUnits: "pixels",
       radiusMinPixels: 2,
-      getFillColor: BUS_COLOR,
+      getFillColor: (d) => [BUS_COLOR[0], BUS_COLOR[1], BUS_COLOR[2], staleAlpha(d)],
       stroked: false,
-      transitions: { getPosition: { duration: 18000 } },
+      transitions: { getPosition: { duration: POSITION_TWEEN_MS } },
       onClick: selectVehicle,
     }),
     new ScatterplotLayer<Vehicle>({
@@ -245,22 +268,34 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
         const [r, g, b] = lineColor(d.shortName);
         return [r, g, b, 55];
       },
-      transitions: { getPosition: { duration: 14000 } },
+      transitions: { getPosition: { duration: POSITION_TWEEN_MS } },
     }),
-    new ScatterplotLayer<Vehicle>({
+    // Rail vehicles as directional chevrons pointing along their heading.
+    new IconLayer<Vehicle>({
       id: "vehicles",
       data: railShown,
       pickable: true,
       getPosition: (d) => [d.lon, d.lat],
-      getRadius: 4.2,
-      radiusUnits: "pixels",
-      radiusMinPixels: 3,
-      getFillColor: (d) => lineColor(d.shortName),
-      stroked: true,
-      getLineColor: [240, 246, 252, 220],
-      lineWidthUnits: "pixels",
-      getLineWidth: 1.2,
-      transitions: { getPosition: { duration: 14000 } },
+      getIcon: () => ({
+        url: ARROW_ICON,
+        width: 24,
+        height: 24,
+        anchorX: 12,
+        anchorY: 13,
+        mask: true,
+      }),
+      getSize: 18,
+      sizeUnits: "pixels",
+      getColor: (d) => {
+        const [r, g, b] = lineColor(d.shortName);
+        return [r, g, b, staleAlpha(d)];
+      },
+      getAngle: (d) => -d.heading, // icon points north at 0; heading is CW from north
+      billboard: false,
+      transitions: {
+        getPosition: { duration: POSITION_TWEEN_MS },
+        getAngle: { duration: 800 },
+      },
       onClick: selectVehicle,
     }),
   );
