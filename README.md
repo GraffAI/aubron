@@ -109,22 +109,27 @@ pnpm --filter <name> dev                          # local dev server
 
 Deploys live in the repo, not a dashboard: `.github/workflows/deploy.yml` builds
 each app with the Vercel CLI and ships the prebuilt output using the org-scoped
-`VERCEL_KEY` token. `apps/<name>/vercel.json` pins the framework and uses
-`turbo-ignore` so unchanged apps don't rebuild. Each app is its own Vercel
-project with **Root Directory = `apps/<name>`**, which keeps the pnpm workspace
-install + Turbo cache working exactly as they do locally.
+`VERCEL_KEY` token. Each app is its own Vercel project, **keyed by its directory
+name** — there are no project IDs to manage. The CLI _creates_ the project on the
+first run (a real first deploy) and reuses it after, recording Root Directory =
+`apps/<name>` so the pnpm-workspace install + Turbo cache work exactly as they do
+locally. `apps/<name>/vercel.json` pins the framework.
 
-### ⚠️ First deploy of an app is a one-time MANUAL bootstrap
+Each app is served at **`<name>.aubron.io`** (e.g. `transit.aubron.io`). The
+workflow attaches that subdomain to the project automatically — since the
+`aubron.io` apex is already on Vercel, there's no per-app DNS to set up. Override
+the base domain with an `APPS_DOMAIN` repo variable.
 
-Exactly like the first npm publish: a Vercel project must exist before CI can
-target it. Once per app:
+### Wiring up a new app
 
-1. Create the Vercel project (CLI or dashboard) and set **Root Directory** to
-   `apps/<name>`. Add any runtime env (e.g. `OBA_API_KEY`) on the project.
-2. Add repo **variables**: `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID_<APP>` (the app
-   name uppercased, e.g. `VERCEL_PROJECT_ID_TRANSIT`). The `VERCEL_KEY` **secret**
-   is org-scoped and already available.
-3. Add `<name>` to the `matrix.app` list in `deploy.yml`.
+1. Add `<name>` to the `matrix.app` list in `deploy.yml`. **That's the only
+   required step** — the first push to `main` auto-creates the Vercel project.
+2. _If the app needs runtime secrets_ (e.g. `OBA_API_KEY`), set them once on the
+   Vercel project's env (dashboard or `vercel env add`).
+
+The only shared inputs are the `VERCEL_KEY` **secret** (already org-scoped) and,
+_optionally_, a `VERCEL_SCOPE` repo **variable** (a Vercel team slug) if the
+token can see more than one team. No per-app variables, ever.
 
 After that, every push to `main` that touches the app redeploys it automatically.
 
