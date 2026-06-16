@@ -1,8 +1,5 @@
+import { MapStage } from "./map-stage";
+
 export default function Home() {
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4">
-      <h1 className="text-2xl font-medium tracking-tight">transit</h1>
-      <p className="text-sm text-white/40">Deployed from the aubron app factory.</p>
-    </main>
-  );
+  return <MapStage />;
 }

@@ -6,6 +6,8 @@ packages:
 # pnpm 11 approves dependency build scripts via `allowBuilds` (replaces the old
 # onlyBuiltDependencies list) and reads settings here, not from package.json.
 allowBuilds:
+  # deck.gl pulls this in transitively; it's a telemetry phone-home — never run it.
+  "@vaadin/vaadin-usage-statistics": false
   esbuild: true
   lefthook: true
   sharp: true

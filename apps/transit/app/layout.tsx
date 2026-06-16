@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "transit",
+  title: "Puget Sound Transit — Live",
   description:
     "Puget Sound transit, live — a bespoke WebGL map of every Link train, Sounder, streetcar and bus in motion.",
 };
