@@ -8,6 +8,10 @@ name: Deploy
 #
 # Adding an app = add its directory name to `matrix.app` below. That's it.
 #
+# All vercel commands run from the REPO ROOT, and we set the project's Root
+# Directory to apps/<app> explicitly (via the API) so `vercel build` resolves the
+# pnpm workspace from the root exactly like local — and never doubles the path.
+#
 # Each app is served at <name>.<APPS_DOMAIN> (default aubron.io) — e.g.
 # transit.aubron.io. The subdomain is attached to the project automatically;
 # since the apex is already on Vercel, no per-app DNS is needed.
@@ -36,9 +40,6 @@ jobs:
       fail-fast: false
       matrix:
         app: [transit]
-    defaults:
-      run:
-        working-directory: apps/${{ matrix.app }}
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_KEY }}
       VERCEL_SCOPE: ${{ vars.VERCEL_SCOPE }}
@@ -65,12 +66,31 @@ jobs:
       - name: Install Vercel CLI
         if: steps.guard.outputs.ok == 'true'
         run: npm i -g vercel@latest
-      # Create-or-link the project named after the app dir. Vercel records the
-      # Root Directory (apps/<app>, relative to the repo root) in .vercel/, so the
-      # build below resolves the pnpm workspace from the root exactly like local.
+      # Create-or-link the project named after the app dir. Writes .vercel/ at the
+      # repo root with the project + org ids.
       - name: Link project (creates it on first run)
         if: steps.guard.outputs.ok == 'true'
         run: vercel link --yes --project "${{ matrix.app }}" ${VERCEL_SCOPE:+--scope "$VERCEL_SCOPE"} --token "$VERCEL_TOKEN"
+      # Pin Root Directory = apps/<app> deterministically, so building from the
+      # repo root resolves to the app (no dependence on Vercel's auto-detection,
+      # and no apps/<app>/apps/<app> doubling).
+      - name: Set Root Directory
+        if: steps.guard.outputs.ok == 'true'
+        run: |
+          proj=$(jq -r '.projectId' .vercel/project.json)
+          org=$(jq -r '.orgId' .vercel/project.json)
+          q=""
+          case "$org" in team_*) q="?teamId=$org" ;; esac
+          code=$(curl -s -o /tmp/proj.json -w '%{http_code}' -X PATCH \
+            "https://api.vercel.com/v9/projects/${proj}${q}" \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"rootDirectory":"apps/${{ matrix.app }}"}')
+          if [ "$code" = "200" ]; then
+            echo "::notice::Root Directory set to apps/${{ matrix.app }}."
+          else
+            echo "::warning::Could not set Root Directory (HTTP $code): $(cat /tmp/proj.json)"
+          fi
       # Attach <app>.<APPS_DOMAIN> to the project so production deploys serve
       # there. Idempotent: a no-op once the subdomain is already assigned.
       - name: Attach domain
