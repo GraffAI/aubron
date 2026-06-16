@@ -19,8 +19,6 @@ const LINES: { name: string; color: RGBA }[] = [
   { name: "1 Line", color: LINE_COLORS["1 Line"]! },
   { name: "2 Line", color: LINE_COLORS["2 Line"]! },
   { name: "T Line", color: LINE_COLORS["T Line"]! },
-  { name: "N Line", color: LINE_COLORS["N Line"]! },
-  { name: "S Line", color: LINE_COLORS["S Line"]! },
 ];
 const ALL_LINES = new Set(LINES.map((l) => l.name));
 
