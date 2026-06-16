@@ -4,7 +4,12 @@ import type { FeatureCollection } from "geojson";
 export interface Basemap {
   /** [south, west, north, east] */
   bbox: [number, number, number, number];
-  water: FeatureCollection;
+  /** Marine water (the Sound + passages), drawn lit. */
+  marine: FeatureCollection;
+  /** Landmasses (mainland + islands), drawn over marine to mask any bleed. */
+  land: FeatureCollection;
+  /** Lakes, drawn lit over the land. */
+  lakes: FeatureCollection;
   coastline: FeatureCollection;
   roads: FeatureCollection;
 }

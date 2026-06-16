@@ -9,9 +9,10 @@
  *   pnpm --filter transit data:basemap
  *
  * Layers produced:
- *   - water     filled polygons: lakes (natural=water) + the marine fill of the
- *               Sound, recovered by polygonizing the coastline against a noded
- *               bbox frame and keeping cells that contain known open-water seeds.
+ *   - land      filled landmasses (mainland + islands), recovered by polygonizing
+ *               the coastline against a noded bbox frame and dropping the cells
+ *               that are open water. Water itself is the client's background.
+ *   - water     filled lakes (natural=water) that sit inside the land.
  *   - coastline luminous strokes along the shoreline (incl. the Sound's edge).
  *   - roads     faint context lines (motorway / trunk), classed.
  */
@@ -71,7 +72,13 @@ const MARINE_SEEDS: Position[] = [
 // as water (guards against a stray seed landing in it).
 const MAX_WATER_CELL_FRAC = 0.55;
 
-const OVERPASS = "https://overpass-api.de/api/interpreter";
+// Several mirrors — the main instance 504s under load; we rotate through them.
+const OVERPASS_ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.osm.ch/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+];
 
 async function fetchOsm(): Promise<FeatureCollection> {
   const [s, w, n, e] = BBOX;
@@ -88,23 +95,33 @@ out body;
 out skel qt;`;
 
   console.log("→ querying Overpass…");
-  // Overpass frequently 504s under load — retry with backoff.
-  for (let attempt = 1; attempt <= 6; attempt++) {
-    const res = await fetch(OVERPASS, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "aubron-transit/0.1 (basemap build; github.com/GraffAI/aubron)",
-        Accept: "application/json",
-      },
-      body: new URLSearchParams({ data: query }).toString(),
-    });
-    const text = await res.text();
-    if (res.ok && text.trimStart().startsWith("{")) {
-      return osmtogeojson(JSON.parse(text));
+  // Overpass instances 504/429 under load — rotate through mirrors with backoff.
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const endpoint = OVERPASS_ENDPOINTS[attempt % OVERPASS_ENDPOINTS.length]!;
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "aubron-transit/0.1 (basemap build; github.com/GraffAI/aubron)",
+          Accept: "application/json",
+        },
+        body: new URLSearchParams({ data: query }).toString(),
+      });
+      const text = await res.text();
+      if (res.ok && text.trimStart().startsWith("{")) {
+        const geo = osmtogeojson(JSON.parse(text));
+        if (geo.features.length > 50) return geo;
+        console.warn(`  ${endpoint} → only ${geo.features.length} features; trying next…`);
+      } else {
+        console.warn(`  ${endpoint} → ${res.status}; trying next…`);
+      }
+    } catch (err) {
+      console.warn(`  ${endpoint} → ${String(err)}; trying next…`);
     }
-    console.warn(`  Overpass attempt ${attempt} → ${res.status}; retrying…`);
-    await new Promise((r) => setTimeout(r, 4000 * attempt));
+    if (attempt % OVERPASS_ENDPOINTS.length === OVERPASS_ENDPOINTS.length - 1) {
+      await new Promise((r) => setTimeout(r, 5000));
+    }
   }
   throw new Error("Overpass unavailable after retries");
 }
@@ -119,14 +136,13 @@ function simplifyAll<T extends Feature>(features: T[], tolerance: number): T[] {
 }
 
 /**
- * Recover marine water (the Sound + western inlets) as filled polygons. OSM only
- * gives the coastline as open lines, so: clip each line to the bbox, build a
- * frame around the bbox that is *split* (noded) at every point where a coastline
- * meets it, polygonize the lot into cells, and keep the cells that contain a
- * known open-water seed. (Naive polygonize without the noded frame can't close
- * the cells that touch the bbox edge, which is most of the Sound.)
+ * Polygonize the coastline into cells. OSM gives the coast as open lines, so:
+ * clip each line to the bbox, build a frame around the bbox that is *split*
+ * (noded) at every point where a coastline meets it, and polygonize the lot.
+ * Returns every cell — the caller decides which are land vs water. (The noded
+ * frame is the missing piece that lets cells touching the bbox edge close.)
  */
-function marineWater(coastline: Feature<LineString | MultiLineString>[]): Feature<Polygon>[] {
+function coastCells(coastline: Feature<LineString | MultiLineString>[]): Feature<Polygon>[] {
   const [s, w, n, e] = BBOX;
   const eps = 1e-6;
   const onBoundary = (p: Position): boolean =>
@@ -182,37 +198,16 @@ function marineWater(coastline: Feature<LineString | MultiLineString>[]): Featur
     segments.push(lineString([uniq[i]!, uniq[(i + 1) % uniq.length]!]));
   }
 
-  let cells;
   try {
-    cells = polygonize(featureCollection(segments));
+    return polygonize(featureCollection(segments)).features;
   } catch (err) {
-    console.warn(`⚠ marine polygonize failed (${String(err)}); shipping coastline strokes only`);
+    console.warn(`⚠ coastline polygonize failed (${String(err)})`);
     return [];
   }
-  const frameArea = area({
-    type: "Polygon",
-    coordinates: [
-      [
-        [w, s],
-        [e, s],
-        [e, n],
-        [w, n],
-        [w, s],
-      ],
-    ],
-  });
-  return cells.features.filter(
-    (cell) =>
-      area(cell) < MAX_WATER_CELL_FRAC * frameArea &&
-      MARINE_SEEDS.some((seed) => {
-        try {
-          return booleanPointInPolygon(point(seed), cell);
-        } catch {
-          return false;
-        }
-      }),
-  );
 }
+
+// Smallest land cell we keep (m²) — drops polygonize slivers, keeps real islands.
+const MIN_LAND_AREA = 50_000;
 
 async function main(): Promise<void> {
   const geo = await fetchOsm();
@@ -235,8 +230,11 @@ async function main(): Promise<void> {
       properties: { class: String(f.properties?.highway ?? "road") },
     }));
 
-  // Marine fill for the Sound, gated: only keep it if it covers a believable
-  // share of the frame (guards against a bad polygonize flooding land or nothing).
+  // Polygonize the coast into cells, classify each as marine water (holds an
+  // open-water seed, and isn't the dominant >55% mainland cell) or land.
+  // The client draws: marine water (lit) → land on top (masks any polygonize/
+  // simplify bleed so islands stay dark) → lakes (lit) → coastline stroke. Only
+  // the coastline is stroked, so every shoreline has one consistent outline.
   const [s, w, n, e] = BBOX;
   const frameArea = area({
     type: "Polygon",
@@ -250,18 +248,28 @@ async function main(): Promise<void> {
       ],
     ],
   });
-  const marine = marineWater(coastline);
+  const cells = coastCells(coastline);
+  const isWater = (c: Feature<Polygon>): boolean =>
+    area(c) < MAX_WATER_CELL_FRAC * frameArea &&
+    MARINE_SEEDS.some((seed) => {
+      try {
+        return booleanPointInPolygon(point(seed), c);
+      } catch {
+        return false;
+      }
+    });
+  const marine = cells.filter(isWater);
+  const land = cells.filter((c) => !isWater(c) && area(c) >= MIN_LAND_AREA);
   const marineFrac = marine.reduce((sum, f) => sum + area(f), 0) / frameArea;
-  const keepMarine = marine.length > 0 && marineFrac > 0.15 && marineFrac < 0.9;
   console.log(
-    `  lakes=${lakes.length} coastline=${coastline.length} roads=${roads.length} | marine cells=${marine.length} fill=${(marineFrac * 100).toFixed(0)}% → ${keepMarine ? "kept" : "dropped"}`,
+    `  lakes=${lakes.length} coastline=${coastline.length} roads=${roads.length} | cells=${cells.length} marine=${marine.length} (${(marineFrac * 100).toFixed(0)}%) land=${land.length}`,
   );
-
-  const waterFeatures = [...(keepMarine ? marine : []), ...lakes];
 
   const out = {
     bbox: BBOX,
-    water: featureCollection(simplifyAll(waterFeatures, 0.0001)),
+    marine: featureCollection(simplifyAll(marine, 0.0001)),
+    land: featureCollection(simplifyAll(land, 0.0001)),
+    lakes: featureCollection(simplifyAll(lakes, 0.0001)),
     coastline: featureCollection(simplifyAll(coastline, 0.0001)),
     roads: featureCollection(simplifyAll(roads, 0.0002)),
   };

@@ -177,17 +177,29 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
   // layers rebuild at 60fps.
   const baseLayers = useMemo(() => {
     if (!base) return [];
+    // void background (land tone) → lit marine water → land on top (masks any
+    // bleed, keeps islands dark) → lit lakes → faint roads → crisp coastline.
     return [
       new GeoJsonLayer({
-        id: "water",
-        data: base.water,
+        id: "marine",
+        data: base.marine,
         filled: true,
-        stroked: true,
+        stroked: false,
         getFillColor: COLORS.waterFill,
-        getLineColor: COLORS.waterEdge,
-        lineWidthUnits: "pixels",
-        getLineWidth: 0.75,
-        lineWidthMinPixels: 0.5,
+      }),
+      new GeoJsonLayer({
+        id: "land",
+        data: base.land,
+        filled: true,
+        stroked: false,
+        getFillColor: COLORS.void,
+      }),
+      new GeoJsonLayer({
+        id: "lakes",
+        data: base.lakes,
+        filled: true,
+        stroked: false,
+        getFillColor: COLORS.waterFill,
       }),
       new GeoJsonLayer({
         id: "roads",
