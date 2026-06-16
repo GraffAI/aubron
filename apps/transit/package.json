@@ -1,0 +1,36 @@
+{
+  "name": "transit",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Puget Sound transit, live — a bespoke WebGL map of every Link train, Sounder, streetcar and bus in motion.",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "next": "^15.5.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@aubron/eslint-config": "workspace:*",
+    "@aubron/prettier-config": "workspace:*",
+    "@aubron/tsconfig": "workspace:*",
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "catalog:",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "catalog:",
+    "tailwindcss": "^4.0.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

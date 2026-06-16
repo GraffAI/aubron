@@ -8,21 +8,23 @@ that's what lets a package eject into its own repo with no config rewriting.
 
 ## The commands that matter
 
-| Command                                      | What it does                                 |
-| -------------------------------------------- | -------------------------------------------- |
-| `pnpm new <name> --type <lib\|cli\|skill>`   | Scaffold a new publish-ready package.        |
-| `pnpm eject <name> [--push]`                 | Copy a package out into a standalone repo.   |
-| `pnpm changeset`                             | Record release intent (the only local step). |
-| `pnpm turbo run build test lint typecheck`   | Run everything (cached, dependency-ordered). |
-| `pnpm format` / `pnpm format:check`          | Prettier write / check.                      |
-| `aubron-skill validate` / `sync-marketplace` | Validate a skill / refresh the marketplace.  |
+| Command                                         | What it does                                 |
+| ----------------------------------------------- | -------------------------------------------- |
+| `pnpm new <name> --type <lib\|cli\|skill\|app>` | Scaffold a package (or a deployable app).    |
+| `pnpm eject <name> [--push]`                    | Copy a package out into a standalone repo.   |
+| `pnpm changeset`                                | Record release intent (the only local step). |
+| `pnpm turbo run build test lint typecheck`      | Run everything (cached, dependency-ordered). |
+| `pnpm format` / `pnpm format:check`             | Prettier write / check.                      |
+| `aubron-skill validate` / `sync-marketplace`    | Validate a skill / refresh the marketplace.  |
 
 ## Where things live
 
 - `packages/*` — the config packages and shippable packages.
+- `apps/*` — **deployed, not published** (see "Apps" below).
 - `scripts/gen.ts` — implements `new` and `eject`.
 - `scripts/templates/` — `package/` (base), `types/{lib,cli}/` (overlays),
-  `skill/` (skill package template), `standalone/` (ejected-repo extras).
+  `skill/` (skill package template), `app/` (Next.js app template),
+  `standalone/` (ejected-repo extras).
 - `.claude-plugin/marketplace.json` — generated catalog of skill packages (the
   `aubron` plugin marketplace). Never hand-edit; run `aubron-skill sync-marketplace`.
 - `pnpm-workspace.yaml` — workspaces **and the version catalog**.
@@ -42,6 +44,24 @@ skill for the full runbook):
 - **Library-bundled skills** (e.g. `@aubron/ankerts-cli` ships an `ankerts`
   skill under `skills/` + `ankerts skills install`) are the alternative for
   shipping a skill _with_ a library. Never install skills via a `postinstall`.
+
+## Apps
+
+`apps/*` are **deployed, not published** — the inverse of packages:
+
+- `pnpm new <name> --type app` scaffolds a Next.js app under `apps/<name>` from
+  `scripts/templates/app/`. Apps are `"private": true`, get **no changeset**, and
+  are named plainly (no `@aubron/*` scope) since they never hit npm.
+- They still share the catalog + Turbo pipeline and expose
+  `build`/`dev`/`lint`/`typecheck`/`test`, so existing CI covers them.
+- **Deploy is CI-first** (mirrors publishing): `.github/workflows/deploy.yml`
+  builds each app with the Vercel CLI and ships prebuilt output via the
+  org-scoped `VERCEL_KEY` token. Each app is its own Vercel project with Root
+  Directory `apps/<name>`. First deploy is a one-time manual project
+  bootstrap + repo variables (`VERCEL_ORG_ID`, `VERCEL_PROJECT_ID_<APP>`); then
+  CI takes over. See README "Apps".
+- `next-env.d.ts` and `globals.d.ts` are committed so `tsc --noEmit` typecheck
+  passes without a prior `next build`.
 
 ## Conventions
 

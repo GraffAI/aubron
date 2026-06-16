@@ -1,10 +1,14 @@
 packages:
   - "packages/*"
+  # Apps are deployed (Vercel via CI), never published. Private workspaces, so
+  # the release flow ignores them; they still share the catalog + Turbo pipeline.
+  - "apps/*"
 # pnpm 11 approves dependency build scripts via `allowBuilds` (replaces the old
 # onlyBuiltDependencies list) and reads settings here, not from package.json.
 allowBuilds:
   esbuild: true
   lefthook: true
+  sharp: true
 catalog:
   typescript: ^6.0.3
   tsup: ^8.5.1

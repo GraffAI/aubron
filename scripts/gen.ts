@@ -22,6 +22,7 @@ const SCOPE = "@aubron";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const TEMPLATES = join(ROOT, "scripts", "templates");
 const PACKAGES = join(ROOT, "packages");
+const APPS = join(ROOT, "apps");
 
 type Json = Record<string, unknown>;
 
@@ -124,8 +125,12 @@ function cmdNew(argv: string[]): void {
     fail(`invalid name "${name}" — use kebab-case, no scope`);
 
   const type = values.type ?? "lib";
-  if (type !== "lib" && type !== "cli" && type !== "skill")
-    fail(`--type must be "lib", "cli", or "skill" (got "${type}")`);
+  if (type !== "lib" && type !== "cli" && type !== "skill" && type !== "app")
+    fail(`--type must be "lib", "cli", "skill", or "app" (got "${type}")`);
+
+  // Apps are deployed, not published: they live under apps/, are private, get no
+  // changeset, and use a name (not an @aubron-scoped package) — handle them apart.
+  if (type === "app") return cmdNewApp(name, values.description);
 
   const pkgDir = join(PACKAGES, name);
   if (existsSync(pkgDir)) fail(`packages/${name} already exists`);
@@ -240,6 +245,35 @@ function cmdNewSkill(
   console.log(`  pnpm --filter ${pkgName} test    # validate the skill`);
   console.log(`  # install it: claude plugin marketplace add GraffAI/aubron`);
   console.log(`  #             claude plugin install ${name}@aubron`);
+}
+
+/**
+ * Scaffold an app (a deployed-not-published workspace under apps/). Unlike a
+ * package it's private, gets no changeset, and is named plainly (no @aubron
+ * scope) since it never hits npm — CI deploys it to Vercel instead.
+ */
+function cmdNewApp(name: string, description?: string): void {
+  const appDir = join(APPS, name);
+  if (existsSync(appDir)) fail(`apps/${name} already exists`);
+
+  const ctx: Record<string, string> = {
+    __NAME__: name,
+    __DESCRIPTION__: description ?? `The ${name} app.`,
+    __YEAR__: String(new Date().getFullYear()),
+  };
+
+  mkdirSync(appDir, { recursive: true });
+  copyTree(join(TEMPLATES, "app"), appDir, ctx);
+
+  // No changeset: apps are deployed by CI, never released to npm.
+  console.log(`→ pnpm install`);
+  run("pnpm", ["install"], ROOT);
+
+  console.log(`\n✔ Created apps/${name} (type: app)`);
+  console.log(`\nNext:`);
+  console.log(`  pnpm --filter ${name} dev`);
+  console.log(`  # provision the Vercel project once (see README "Apps"), then`);
+  console.log(`  # CI deploys it on every push to main.`);
 }
 
 /** Yield every file path under `dir`, recursively. */
