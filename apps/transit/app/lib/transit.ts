@@ -70,6 +70,15 @@ export interface TripDetail {
   stops: TripStop[];
 }
 
+/** UI filter state: which rail lines show, whether buses show, on-time-only. */
+export interface Filter {
+  lines: Set<string>;
+  buses: boolean;
+  onTimeOnly: boolean;
+}
+
+export const isOnTime = (deviationSec: number): boolean => Math.abs(deviationSec) < 60;
+
 /** GTFS route_type → our coarse mode. 0 = tram/light rail/streetcar, 2 = rail. */
 export function modeFromType(type: number): Mode {
   if (type === 0) return "light-rail";

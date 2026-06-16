@@ -2,12 +2,19 @@
 
 import DeckGL from "@deck.gl/react";
 import type { PickingInfo } from "deck.gl";
-import { GeoJsonLayer, MapView, PathLayer, ScatterplotLayer } from "deck.gl";
-import { useEffect, useState } from "react";
+import { GeoJsonLayer, MapView, PathLayer, ScatterplotLayer, WebMercatorViewport } from "deck.gl";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { type Basemap, loadBasemap } from "./lib/basemap";
 import { COLORS, LINE_COLORS, type RGBA } from "./lib/theme";
-import type { NetworkData, ShapeLine, StopInfo, Vehicle } from "./lib/transit";
+import {
+  type Filter,
+  isOnTime,
+  type NetworkData,
+  type ShapeLine,
+  type StopInfo,
+  type Vehicle,
+} from "./lib/transit";
 
 const INITIAL_VIEW_STATE = {
   longitude: -122.33,
@@ -20,18 +27,30 @@ const INITIAL_VIEW_STATE = {
 };
 
 const RAIL_FALLBACK: RGBA = [150, 170, 190, 220];
+const BUS_COLOR = LINE_COLORS.bus ?? RAIL_FALLBACK;
 const lineColor = (shortName: string): RGBA => LINE_COLORS[shortName] ?? RAIL_FALLBACK;
 
 interface Props {
+  filter: Filter;
   onVehicles?: (v: Vehicle[]) => void;
+  onBuses?: (v: Vehicle[]) => void;
   onSelect?: (v: Vehicle | null) => void;
 }
 
-export function TransitDeck({ onVehicles, onSelect }: Props) {
+interface ViewState {
+  longitude: number;
+  latitude: number;
+  zoom: number;
+}
+
+export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
   const [base, setBase] = useState<Basemap | null>(null);
   const [net, setNet] = useState<NetworkData | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [buses, setBuses] = useState<Vehicle[]>([]);
+  const viewRef = useRef<ViewState>(INITIAL_VIEW_STATE);
 
+  // Basemap + network once.
   useEffect(() => {
     const c = new AbortController();
     loadBasemap(c.signal)
@@ -44,6 +63,7 @@ export function TransitDeck({ onVehicles, onSelect }: Props) {
     return () => c.abort();
   }, []);
 
+  // Rail vehicles, network-wide, every 15s.
   useEffect(() => {
     let active = true;
     const tick = async () => {
@@ -66,6 +86,53 @@ export function TransitDeck({ onVehicles, onSelect }: Props) {
       clearInterval(id);
     };
   }, [onVehicles]);
+
+  // Viewport buses — only while the Buses filter is on.
+  const fetchBuses = useCallback(async () => {
+    const v = viewRef.current;
+    const vp = new WebMercatorViewport({
+      width: typeof window === "undefined" ? 1440 : window.innerWidth,
+      height: typeof window === "undefined" ? 900 : window.innerHeight,
+      longitude: v.longitude,
+      latitude: v.latitude,
+      zoom: v.zoom,
+    });
+    const b = vp.getBounds(); // [minLng, minLat, maxLng, maxLat]
+    const [w, s, e, n] = b as unknown as [number, number, number, number];
+    const lat = (s + n) / 2;
+    const lon = (w + e) / 2;
+    const latSpan = Math.abs(n - s);
+    const lonSpan = Math.abs(e - w);
+    try {
+      const r = await fetch(
+        `/api/area?lat=${lat}&lon=${lon}&latSpan=${latSpan}&lonSpan=${lonSpan}`,
+      );
+      const j = (await r.json()) as { vehicles?: Vehicle[] };
+      const next = [...(j.vehicles ?? [])].sort((a, b2) => (a.id < b2.id ? -1 : 1));
+      setBuses(next);
+      onBuses?.(next);
+    } catch {
+      /* keep last */
+    }
+  }, [onBuses]);
+
+  useEffect(() => {
+    if (!filter.buses) {
+      setBuses([]);
+      onBuses?.([]);
+      return;
+    }
+    void fetchBuses();
+    const id = setInterval(() => void fetchBuses(), 20000);
+    return () => clearInterval(id);
+  }, [filter.buses, fetchBuses, onBuses]);
+
+  // Pan/zoom: remember the view, and (debounced) refetch buses for the new area.
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const passOnTime = (v: Vehicle) => !filter.onTimeOnly || isOnTime(v.deviation);
+  const railShown = vehicles.filter((v) => filter.lines.has(v.shortName) && passOnTime(v));
+  const busShown = filter.buses ? buses.filter(passOnTime) : [];
 
   const layers = [];
 
@@ -106,11 +173,11 @@ export function TransitDeck({ onVehicles, onSelect }: Props) {
   }
 
   if (net) {
+    const shownLineShapes = net.shapes.filter((sh) => filter.lines.has(sh.shortName));
     layers.push(
-      // Soft underglow beneath each line.
       new PathLayer<ShapeLine>({
         id: "routes-glow",
-        data: net.shapes,
+        data: shownLineShapes,
         getPath: (d) => d.path,
         getColor: (d) => {
           const [r, g, b] = lineColor(d.shortName);
@@ -123,7 +190,7 @@ export function TransitDeck({ onVehicles, onSelect }: Props) {
       }),
       new PathLayer<ShapeLine>({
         id: "routes",
-        data: net.shapes,
+        data: shownLineShapes,
         getPath: (d) => d.path,
         getColor: (d) => lineColor(d.shortName),
         widthUnits: "pixels",
@@ -141,17 +208,36 @@ export function TransitDeck({ onVehicles, onSelect }: Props) {
         radiusMinPixels: 1.5,
         getFillColor: [8, 12, 18, 255],
         stroked: true,
-        getLineColor: [150, 180, 200, 150],
+        getLineColor: [150, 180, 200, 120],
         lineWidthUnits: "pixels",
         getLineWidth: 1,
       }),
     );
   }
 
+  // Buses sit beneath rail so trains stay the headline.
+  const selectVehicle = (info: PickingInfo<Vehicle>) => {
+    onSelect?.(info.object ?? null);
+    return true;
+  };
+
   layers.push(
     new ScatterplotLayer<Vehicle>({
+      id: "buses",
+      data: busShown,
+      pickable: true,
+      getPosition: (d) => [d.lon, d.lat],
+      getRadius: 2.8,
+      radiusUnits: "pixels",
+      radiusMinPixels: 2,
+      getFillColor: BUS_COLOR,
+      stroked: false,
+      transitions: { getPosition: { duration: 18000 } },
+      onClick: selectVehicle,
+    }),
+    new ScatterplotLayer<Vehicle>({
       id: "vehicle-glow",
-      data: vehicles,
+      data: railShown,
       getPosition: (d) => [d.lon, d.lat],
       getRadius: 11,
       radiusUnits: "pixels",
@@ -163,7 +249,7 @@ export function TransitDeck({ onVehicles, onSelect }: Props) {
     }),
     new ScatterplotLayer<Vehicle>({
       id: "vehicles",
-      data: vehicles,
+      data: railShown,
       pickable: true,
       getPosition: (d) => [d.lon, d.lat],
       getRadius: 4.2,
@@ -175,10 +261,7 @@ export function TransitDeck({ onVehicles, onSelect }: Props) {
       lineWidthUnits: "pixels",
       getLineWidth: 1.2,
       transitions: { getPosition: { duration: 14000 } },
-      onClick: (info: PickingInfo<Vehicle>) => {
-        onSelect?.(info.object ?? null);
-        return true;
-      },
+      onClick: selectVehicle,
     }),
   );
 
@@ -188,6 +271,13 @@ export function TransitDeck({ onVehicles, onSelect }: Props) {
       views={new MapView({ repeat: false })}
       initialViewState={INITIAL_VIEW_STATE}
       controller={{ dragRotate: false }}
+      onViewStateChange={(p) => {
+        const vs = p.viewState as unknown as ViewState;
+        viewRef.current = { longitude: vs.longitude, latitude: vs.latitude, zoom: vs.zoom };
+        if (!filter.buses) return;
+        if (debounce.current) clearTimeout(debounce.current);
+        debounce.current = setTimeout(() => void fetchBuses(), 600);
+      }}
       pickingRadius={8}
       style={{ position: "absolute", inset: "0" }}
       getCursor={({ isHovering }) => (isHovering ? "pointer" : "grab")}
