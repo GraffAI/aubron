@@ -10,3 +10,6 @@ coverage
 .next
 .vercel
 *.tsbuildinfo
+# Never commit secrets — the OneBusAway key lives here locally + as a Vercel env var.
+.env
+.env*.local

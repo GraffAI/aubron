@@ -38,28 +38,37 @@ jobs:
       VERCEL_PROJECT_ID: ${{ vars[format('VERCEL_PROJECT_ID_{0}', matrix.app)] }}
     steps:
       - uses: actions/checkout@v6
+      # Until an app is provisioned on Vercel (one-time, see README "Apps"), this
+      # workflow no-ops cleanly rather than failing — so merging to main stays
+      # green and the deploy "activates" the moment the variables are set.
+      - name: Check Vercel provisioning
+        id: guard
+        run: |
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            echo "provisioned=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "provisioned=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::App '${{ matrix.app }}' is not provisioned on Vercel yet — skipping deploy. See README 'Apps'."
+          fi
       - uses: pnpm/action-setup@v6
+        if: steps.guard.outputs.provisioned == 'true'
       - uses: actions/setup-node@v6
+        if: steps.guard.outputs.provisioned == 'true'
         with:
           node-version: 24
           cache: pnpm
-      - name: Verify Vercel project is provisioned
-        run: |
-          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
-            echo "::error::App '${{ matrix.app }}' is not provisioned on Vercel."
-            echo "Set the VERCEL_KEY secret, the VERCEL_ORG_ID variable, and the"
-            echo "VERCEL_PROJECT_ID_$(echo '${{ matrix.app }}' | tr a-z A-Z) variable."
-            echo "See the README 'Apps' section for the one-time bootstrap."
-            exit 1
-          fi
       - name: Install Vercel CLI
+        if: steps.guard.outputs.provisioned == 'true'
         run: npm i -g vercel@latest
       # All vercel commands run from the repo root; the project's Root Directory
       # (apps/<name>) is pulled from Vercel, so the pnpm workspace install + Turbo
       # cache work exactly as they do locally.
       - name: Pull Vercel environment
+        if: steps.guard.outputs.provisioned == 'true'
         run: vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
       - name: Build
+        if: steps.guard.outputs.provisioned == 'true'
         run: vercel build --prod --token "$VERCEL_TOKEN"
       - name: Deploy prebuilt output
+        if: steps.guard.outputs.provisioned == 'true'
         run: vercel deploy --prebuilt --prod --token "$VERCEL_TOKEN"
