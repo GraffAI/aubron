@@ -56,10 +56,11 @@ skill for the full runbook):
   `build`/`dev`/`lint`/`typecheck`/`test`, so existing CI covers them.
 - **Deploy is CI-first** (mirrors publishing): `.github/workflows/deploy.yml`
   builds each app with the Vercel CLI and ships prebuilt output via the
-  org-scoped `VERCEL_KEY` token. Each app is its own Vercel project with Root
-  Directory `apps/<name>`. First deploy is a one-time manual project
-  bootstrap + repo variables (`VERCEL_ORG_ID`, `VERCEL_PROJECT_ID_<APP>`); then
-  CI takes over. See README "Apps".
+  org-scoped `VERCEL_KEY` token. Each app is its own Vercel project **keyed by
+  its directory name** — the CLI creates it on the first run (a real first
+  deploy) and reuses it after. No project IDs, no per-app variables. **Adding an
+  app = one line in `matrix.app`**; runtime secrets (e.g. `OBA_API_KEY`) are set
+  once on the Vercel project. See README "Apps".
 - `next-env.d.ts` and `globals.d.ts` are committed so `tsc --noEmit` typecheck
   passes without a prior `next build`.
 
