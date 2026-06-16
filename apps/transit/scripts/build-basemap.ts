@@ -8,11 +8,12 @@
  *
  *   pnpm --filter transit data:basemap
  *
- * Layers produced:
- *   - land      filled landmasses (mainland + islands), recovered by polygonizing
- *               the coastline against a noded bbox frame and dropping the cells
- *               that are open water. Water itself is the client's background.
- *   - water     filled lakes (natural=water) that sit inside the land.
+ * Layers produced (client draws marine → land → lakes → coastline → roads):
+ *   - marine    filled marine water (the Sound + passages), from polygonizing the
+ *               coastline against a noded bbox frame and keeping open-water cells.
+ *   - land      mainland (the non-water cells) + islands (OSM place=island areas),
+ *               drawn over the marine fill so islands never show through.
+ *   - lakes     filled lakes (natural=water) sitting inside the land.
  *   - coastline luminous strokes along the shoreline (incl. the Sound's edge).
  *   - roads     faint context lines (motorway / trunk), classed.
  */
