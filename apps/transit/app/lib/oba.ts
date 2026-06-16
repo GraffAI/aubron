@@ -222,3 +222,65 @@ export async function getTripDetail(tripId: string): Promise<TripDetail> {
   if (upcoming[0]) upcoming[0].isNext = true;
   return { tripId, deviation, stops: upcoming };
 }
+
+/**
+ * Buses visible in a viewport. trips-for-location is disabled on this server, so
+ * we discover routes in the box (routes-for-location, cached) and pull live
+ * positions per bus route. Capped to keep the call volume sane.
+ */
+export async function getAreaBuses(
+  lat: number,
+  lon: number,
+  latSpan: number,
+  lonSpan: number,
+): Promise<Vehicle[]> {
+  const area = await obaGet<{ list: ObaRoute[] }>(
+    "routes-for-location",
+    {
+      lat: String(lat),
+      lon: String(lon),
+      latSpan: String(latSpan),
+      lonSpan: String(lonSpan),
+    },
+    300,
+  );
+  const busRoutes = area.list.filter((r) => r.type === 3).slice(0, 25);
+  const latPad = latSpan / 2 + 0.01;
+  const lonPad = lonSpan / 2 + 0.01;
+
+  const perRoute = await Promise.all(
+    busRoutes.map(async (route): Promise<Vehicle[]> => {
+      try {
+        const td = await obaGet<{
+          list: ObaTrip[];
+          references: { trips: { id: string; tripHeadsign?: string }[] };
+        }>(`trips-for-route/${route.id}`, { includeStatus: "true", includeSchedule: "false" });
+        const heads = new Map(td.references.trips.map((t) => [t.id, t.tripHeadsign ?? ""]));
+        return td.list.flatMap((trip): Vehicle[] => {
+          const pos = trip.status?.position ?? trip.status?.lastKnownLocation;
+          if (!pos || (pos.lat === 0 && pos.lon === 0)) return [];
+          if (Math.abs(pos.lat - lat) > latPad || Math.abs(pos.lon - lon) > lonPad) return [];
+          return [
+            {
+              id: trip.tripId,
+              tripId: trip.tripId,
+              routeId: route.id,
+              shortName: route.shortName ?? route.id,
+              mode: "bus",
+              lon: pos.lon,
+              lat: pos.lat,
+              heading: orientationToHeading(trip.status?.orientation ?? 0),
+              deviation: trip.status?.scheduleDeviation ?? 0,
+              occupancy: trip.status?.occupancyStatus ?? "",
+              predicted: trip.status?.predicted ?? false,
+              headsign: heads.get(trip.tripId) ?? route.longName ?? "",
+            },
+          ];
+        });
+      } catch {
+        return [];
+      }
+    }),
+  );
+  return perRoute.flat();
+}
