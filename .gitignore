@@ -5,3 +5,11 @@ coverage
 *.log
 .DS_Store
 .claude/worktrees/
+# Apps (Next.js / Vercel build artifacts). next-env.d.ts is committed on purpose
+# so `tsc --noEmit` typecheck passes in CI without a prior `next build`.
+.next
+.vercel
+*.tsbuildinfo
+# Never commit secrets — the OneBusAway key lives here locally + as a Vercel env var.
+.env
+.env*.local

@@ -21,17 +21,23 @@ packages/
   skill-factory/   @aubron/skill-factory   — meta-skill: how to author/ship skills
   ankerts/         @aubron/ankerts         — AnkerMake/eufyMake M5 SDK
   ankerts-cli/     @aubron/ankerts-cli     — `ankerts` CLI (thin shell over the SDK)
+apps/
+  transit/         Puget Sound transit — bespoke WebGL live map (deployed, not published)
 scripts/gen.ts     — `new` + `eject` commands; templates/ alongside
 .claude-plugin/marketplace.json — generated catalog of the skill packages
 ```
 
+`packages/*` are **published to npm**; `apps/*` are **deployed to the internet**
+by CI (Vercel) and never published. See "Apps" below.
+
 ## Create a package
 
 ```sh
-pnpm new <name> --type <lib|cli|skill> [--description "..."]
+pnpm new <name> --type <lib|cli|skill|app> [--description "..."]
 pnpm new color --type lib
 pnpm new todo --type cli --description "A todo CLI"
 pnpm new my-skill --type skill --description "What it does + when to use it"
+pnpm new dashboard --type app --description "An internal dashboard"
 ```
 
 `--type skill` scaffolds a Claude Agent Skill (a `SKILL.md` + a plugin manifest)
@@ -83,6 +89,44 @@ Lefthook, `CLAUDE.md`). The new repo inherits identical standards.
 > Standalone install/build requires the `@aubron/*` config packages to be
 > published to npm first (they're referenced by name). Publish from this
 > monorepo before ejecting consumers.
+
+## Apps (deploy, don't publish)
+
+Apps are the inverse of packages: **not published to npm, deployed to the open
+internet by CI.** They live under `apps/*`, are `"private": true`, and run on
+Vercel. Same toolchain as everything else — they extend `@aubron/tsconfig` /
+`@aubron/eslint-config` by name and expose `build` / `dev` / `lint` /
+`typecheck` / `test`, so `pnpm turbo run ...` and PR CI cover them for free.
+Because they're private, the release flow ignores them and they need no
+changeset.
+
+```sh
+pnpm new <name> --type app --description "..."   # scaffolds apps/<name> (Next.js)
+pnpm --filter <name> dev                          # local dev server
+```
+
+### Deploy model (CI-first, same spirit as publishing)
+
+Deploys live in the repo, not a dashboard: `.github/workflows/deploy.yml` builds
+each app with the Vercel CLI and ships the prebuilt output using the org-scoped
+`VERCEL_KEY` token. `apps/<name>/vercel.json` pins the framework and uses
+`turbo-ignore` so unchanged apps don't rebuild. Each app is its own Vercel
+project with **Root Directory = `apps/<name>`**, which keeps the pnpm workspace
+install + Turbo cache working exactly as they do locally.
+
+### ⚠️ First deploy of an app is a one-time MANUAL bootstrap
+
+Exactly like the first npm publish: a Vercel project must exist before CI can
+target it. Once per app:
+
+1. Create the Vercel project (CLI or dashboard) and set **Root Directory** to
+   `apps/<name>`. Add any runtime env (e.g. `OBA_API_KEY`) on the project.
+2. Add repo **variables**: `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID_<APP>` (the app
+   name uppercased, e.g. `VERCEL_PROJECT_ID_TRANSIT`). The `VERCEL_KEY` **secret**
+   is org-scoped and already available.
+3. Add `<name>` to the `matrix.app` list in `deploy.yml`.
+
+After that, every push to `main` that touches the app redeploys it automatically.
 
 ## Publishing
 

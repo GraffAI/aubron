@@ -1,0 +1,74 @@
+name: Deploy
+
+# Apps (apps/*) are deployed here, the same way packages are published in
+# release.yml: CI-first, driven from the repo. Each app is its own Vercel
+# project (Root Directory = apps/<name>); this workflow builds with the Vercel
+# CLI and ships the prebuilt output using the org-scoped VERCEL_KEY token.
+#
+# One-time, per app (mirrors the "first publish is manual" bootstrap for
+# packages — see README "Apps"):
+#   1. Create a Vercel project, set Root Directory to apps/<name>.
+#   2. Add repo variables VERCEL_ORG_ID and VERCEL_PROJECT_ID_<APP> (uppercased
+#      app name), plus any runtime env (e.g. OBA_API_KEY) on the Vercel project.
+#   3. Add <name> to the matrix below.
+# After that, every push to main redeploys the changed app automatically.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [transit]
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_KEY }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars[format('VERCEL_PROJECT_ID_{0}', matrix.app)] }}
+    steps:
+      - uses: actions/checkout@v6
+      # Until an app is provisioned on Vercel (one-time, see README "Apps"), this
+      # workflow no-ops cleanly rather than failing — so merging to main stays
+      # green and the deploy "activates" the moment the variables are set.
+      - name: Check Vercel provisioning
+        id: guard
+        run: |
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            echo "provisioned=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "provisioned=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::App '${{ matrix.app }}' is not provisioned on Vercel yet — skipping deploy. See README 'Apps'."
+          fi
+      - uses: pnpm/action-setup@v6
+        if: steps.guard.outputs.provisioned == 'true'
+      - uses: actions/setup-node@v6
+        if: steps.guard.outputs.provisioned == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install Vercel CLI
+        if: steps.guard.outputs.provisioned == 'true'
+        run: npm i -g vercel@latest
+      # All vercel commands run from the repo root; the project's Root Directory
+      # (apps/<name>) is pulled from Vercel, so the pnpm workspace install + Turbo
+      # cache work exactly as they do locally.
+      - name: Pull Vercel environment
+        if: steps.guard.outputs.provisioned == 'true'
+        run: vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
+      - name: Build
+        if: steps.guard.outputs.provisioned == 'true'
+        run: vercel build --prod --token "$VERCEL_TOKEN"
+      - name: Deploy prebuilt output
+        if: steps.guard.outputs.provisioned == 'true'
+        run: vercel deploy --prebuilt --prod --token "$VERCEL_TOKEN"
