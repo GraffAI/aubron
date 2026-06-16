@@ -8,9 +8,14 @@ name: Deploy
 #
 # Adding an app = add its directory name to `matrix.app` below. That's it.
 #
+# Each app is served at <name>.<APPS_DOMAIN> (default aubron.io) — e.g.
+# transit.aubron.io. The subdomain is attached to the project automatically;
+# since the apex is already on Vercel, no per-app DNS is needed.
+#
 # Optional, shared (not per-app): set a VERCEL_SCOPE repo variable to a Vercel
-# team slug if the token can see multiple teams. Apps that need runtime secrets
-# (e.g. OBA_API_KEY) get them set once on their Vercel project's env.
+# team slug if the token can see multiple teams, and an APPS_DOMAIN variable to
+# override aubron.io. Apps that need runtime secrets (e.g. OBA_API_KEY) get them
+# set once on their Vercel project's env.
 
 on:
   push:
@@ -37,6 +42,7 @@ jobs:
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_KEY }}
       VERCEL_SCOPE: ${{ vars.VERCEL_SCOPE }}
+      APPS_DOMAIN: ${{ vars.APPS_DOMAIN || 'aubron.io' }}
     steps:
       - uses: actions/checkout@v6
       # Without the token this workflow no-ops cleanly (keeps main green).
@@ -65,6 +71,17 @@ jobs:
       - name: Link project (creates it on first run)
         if: steps.guard.outputs.ok == 'true'
         run: vercel link --yes --project "${{ matrix.app }}" ${VERCEL_SCOPE:+--scope "$VERCEL_SCOPE"} --token "$VERCEL_TOKEN"
+      # Attach <app>.<APPS_DOMAIN> to the project so production deploys serve
+      # there. Idempotent: a no-op once the subdomain is already assigned.
+      - name: Attach domain
+        if: steps.guard.outputs.ok == 'true'
+        run: |
+          domain="${{ matrix.app }}.${APPS_DOMAIN}"
+          if vercel domains add "$domain" "${{ matrix.app }}" ${VERCEL_SCOPE:+--scope "$VERCEL_SCOPE"} --token "$VERCEL_TOKEN"; then
+            echo "::notice::Attached $domain to project ${{ matrix.app }}."
+          else
+            echo "::notice::$domain already attached (or apex not on this scope) — continuing."
+          fi
       - name: Pull settings + env
         if: steps.guard.outputs.ok == 'true'
         run: vercel pull --yes --environment=production ${VERCEL_SCOPE:+--scope "$VERCEL_SCOPE"} --token "$VERCEL_TOKEN"

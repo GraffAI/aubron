@@ -60,7 +60,9 @@ skill for the full runbook):
   its directory name** — the CLI creates it on the first run (a real first
   deploy) and reuses it after. No project IDs, no per-app variables. **Adding an
   app = one line in `matrix.app`**; runtime secrets (e.g. `OBA_API_KEY`) are set
-  once on the Vercel project. See README "Apps".
+  once on the Vercel project. Each app is served at `<name>.aubron.io` (the
+  workflow attaches the subdomain automatically; override via `APPS_DOMAIN`).
+  See README "Apps".
 - `next-env.d.ts` and `globals.d.ts` are committed so `tsc --noEmit` typecheck
   passes without a prior `next build`.
 

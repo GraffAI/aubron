@@ -115,6 +115,11 @@ first run (a real first deploy) and reuses it after, recording Root Directory =
 `apps/<name>` so the pnpm-workspace install + Turbo cache work exactly as they do
 locally. `apps/<name>/vercel.json` pins the framework.
 
+Each app is served at **`<name>.aubron.io`** (e.g. `transit.aubron.io`). The
+workflow attaches that subdomain to the project automatically — since the
+`aubron.io` apex is already on Vercel, there's no per-app DNS to set up. Override
+the base domain with an `APPS_DOMAIN` repo variable.
+
 ### Wiring up a new app
 
 1. Add `<name>` to the `matrix.app` list in `deploy.yml`. **That's the only
