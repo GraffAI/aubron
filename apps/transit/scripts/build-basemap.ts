@@ -27,6 +27,7 @@ import {
   featureCollection,
   lineString,
   point,
+  polygon,
   polygonize,
   simplify,
 } from "@turf/turf";
@@ -88,6 +89,8 @@ async function fetchOsm(): Promise<FeatureCollection> {
   way["natural"="water"](${bbox});
   relation["natural"="water"](${bbox});
   way["natural"="coastline"](${bbox});
+  way["place"="island"](${bbox});
+  relation["place"="island"](${bbox});
   way["highway"~"^(motorway|trunk)$"](${bbox});
 );
 out body;
@@ -219,10 +222,24 @@ async function main(): Promise<void> {
         isPolygon(f) && f.properties?.natural === "water",
     )
     .filter((f) => area(f) >= MIN_LAKE_AREA);
-  const coastline = feats.filter(
-    (f): f is Feature<LineString | MultiLineString> =>
-      isLine(f) && f.properties?.natural === "coastline",
-  );
+  // Normalize all coastline to LineStrings (osmtogeojson hands back a mix of
+  // open ways, closed ways, and polygons). Big islands like Bainbridge/Vashon
+  // are made of MANY open ways that only form a loop collectively.
+  const coastLines: Feature<LineString>[] = [];
+  for (const f of feats) {
+    if (f.properties?.natural !== "coastline") continue;
+    const g = f.geometry;
+    if (!g) continue;
+    if (g.type === "LineString") coastLines.push(lineString(g.coordinates));
+    else if (g.type === "MultiLineString")
+      for (const c of g.coordinates) coastLines.push(lineString(c));
+    else if (g.type === "Polygon") for (const r of g.coordinates) coastLines.push(lineString(r));
+    else if (g.type === "MultiPolygon")
+      for (const poly of g.coordinates) for (const r of poly) coastLines.push(lineString(r));
+  }
+
+  const coastline = coastLines;
+
   const roads = feats
     .filter((f): f is Feature<LineString | MultiLineString> => isLine(f) && !!f.properties?.highway)
     .map((f) => ({
@@ -232,9 +249,8 @@ async function main(): Promise<void> {
 
   // Polygonize the coast into cells, classify each as marine water (holds an
   // open-water seed, and isn't the dominant >55% mainland cell) or land.
-  // The client draws: marine water (lit) → land on top (masks any polygonize/
-  // simplify bleed so islands stay dark) → lakes (lit) → coastline stroke. Only
-  // the coastline is stroked, so every shoreline has one consistent outline.
+  // The client draws: marine water (lit) → land + islands on top (so islands
+  // stay dark even if the marine fill bleeds) → lakes (lit) → coastline stroke.
   const [s, w, n, e] = BBOX;
   const frameArea = area({
     type: "Polygon",
@@ -259,10 +275,24 @@ async function main(): Promise<void> {
       }
     });
   const marine = cells.filter(isWater);
-  const land = cells.filter((c) => !isWater(c) && area(c) >= MIN_LAND_AREA);
+
+  // Islands: OSM tags them place=island (proper closed areas), which is far more
+  // reliable than coaxing polygonize to close their multi-way coastlines. Drawn
+  // as land on top of the marine fill, Bainbridge/Vashon/… stay dark.
+  const islands: Feature<Polygon>[] = feats
+    .filter(
+      (f): f is Feature<Polygon | MultiPolygon> => isPolygon(f) && f.properties?.place === "island",
+    )
+    .flatMap((f) =>
+      (f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates).map(
+        (rings) => polygon(rings),
+      ),
+    )
+    .filter((p) => area(p) >= MIN_LAND_AREA);
+  const land = [...cells.filter((c) => !isWater(c) && area(c) >= MIN_LAND_AREA), ...islands];
   const marineFrac = marine.reduce((sum, f) => sum + area(f), 0) / frameArea;
   console.log(
-    `  lakes=${lakes.length} coastline=${coastline.length} roads=${roads.length} | cells=${cells.length} marine=${marine.length} (${(marineFrac * 100).toFixed(0)}%) land=${land.length}`,
+    `  lakes=${lakes.length} coastLines=${coastLines.length} roads=${roads.length} | cells=${cells.length} marine=${marine.length} (${(marineFrac * 100).toFixed(0)}%) islands=${islands.length} land=${land.length}`,
   );
 
   const out = {
