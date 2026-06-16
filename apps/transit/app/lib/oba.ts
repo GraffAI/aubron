@@ -11,6 +11,8 @@ import {
   type RouteInfo,
   type ShapeLine,
   type StopInfo,
+  type TripDetail,
+  type TripStop,
   type Vehicle,
 } from "./transit";
 
@@ -169,4 +171,54 @@ export async function getVehicles(): Promise<Vehicle[]> {
     }),
   );
   return byRoute.flat();
+}
+
+interface ObaTripDetails {
+  entry: {
+    serviceDate: number;
+    status?: { scheduleDeviation?: number; nextStop?: string };
+    schedule?: { stopTimes?: { stopId: string; arrivalTime: number }[] };
+  };
+  references: { stops: ObaStop[] };
+}
+
+// stopTimes use platform ids (40_N23-T2); references use the parent (40_N23).
+const stripPlatform = (id: string): string => id.replace(/-T\d+$/, "");
+
+/** Ordered upcoming stops + predicted ETAs for one trip. */
+export async function getTripDetail(tripId: string): Promise<TripDetail> {
+  const data = await obaGet<ObaTripDetails>(`trip-details/${encodeURIComponent(tripId)}`);
+  const { entry, references } = data;
+  const serviceDate = entry.serviceDate;
+  const deviation = entry.status?.scheduleDeviation ?? 0;
+  const nextStop = entry.status?.nextStop ?? "";
+  const now = Date.now();
+
+  const stops = new Map(references.stops.map((s) => [s.id, s]));
+  const nameOf = (id: string): string =>
+    (stops.get(id) ?? stops.get(stripPlatform(id)))?.name ?? id;
+
+  const all: TripStop[] = (entry.schedule?.stopTimes ?? []).map((st) => {
+    const scheduled = serviceDate + st.arrivalTime * 1000;
+    const predicted = scheduled + deviation * 1000;
+    return {
+      stopId: st.stopId,
+      name: nameOf(st.stopId),
+      scheduled,
+      predicted,
+      minutesAway: Math.round((predicted - now) / 60000),
+      isNext: false,
+    };
+  });
+
+  // Show from the train's next stop onward (fall back to the first not-yet-passed).
+  let start = nextStop
+    ? all.findIndex((s) => stripPlatform(s.stopId) === stripPlatform(nextStop))
+    : -1;
+  if (start < 0) start = all.findIndex((s) => s.predicted > now - 60_000);
+  if (start < 0) start = all.length;
+
+  const upcoming = all.slice(start);
+  if (upcoming[0]) upcoming[0].isNext = true;
+  return { tripId, deviation, stops: upcoming };
 }

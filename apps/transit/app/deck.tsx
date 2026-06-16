@@ -188,6 +188,7 @@ export function TransitDeck({ onVehicles, onSelect }: Props) {
       views={new MapView({ repeat: false })}
       initialViewState={INITIAL_VIEW_STATE}
       controller={{ dragRotate: false }}
+      pickingRadius={8}
       style={{ position: "absolute", inset: "0" }}
       getCursor={({ isHovering }) => (isHovering ? "pointer" : "grab")}
       getTooltip={({ object }: PickingInfo<Vehicle>) =>
