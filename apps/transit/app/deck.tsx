@@ -198,8 +198,12 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
         id: "lakes",
         data: base.lakes,
         filled: true,
-        stroked: false,
+        stroked: true,
         getFillColor: COLORS.waterFill,
+        getLineColor: COLORS.coastline,
+        lineWidthUnits: "pixels",
+        getLineWidth: 1.1,
+        lineWidthMinPixels: 0.8,
       }),
       new GeoJsonLayer({
         id: "roads",

@@ -8,7 +8,6 @@ export type RGBA = [number, number, number, number];
 export const COLORS = {
   void: [5, 7, 10, 255] as RGBA,
   waterFill: [12, 22, 34, 255] as RGBA,
-  waterEdge: [40, 78, 96, 120] as RGBA,
   coastline: [88, 158, 190, 205] as RGBA,
   road: [120, 134, 158, 32] as RGBA,
 } as const;
