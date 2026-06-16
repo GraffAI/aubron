@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { LINE_COLORS, type RGBA } from "./lib/theme";
 import type { Filter, Vehicle } from "./lib/transit";
@@ -63,12 +63,14 @@ export function MapStage() {
       return { ...f, lines };
     });
 
+  const handleBuses = useCallback((b: Vehicle[]) => setBusCount(b.length), []);
+
   return (
     <main className="fixed inset-0 overflow-hidden">
       <TransitDeck
         filter={filter}
         onVehicles={setVehicles}
-        onBuses={(b) => setBusCount(b.length)}
+        onBuses={handleBuses}
         onSelect={setSelected}
       />
 
