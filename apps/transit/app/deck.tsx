@@ -73,6 +73,16 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
   const [buses, setBuses] = useState<Vehicle[]>([]);
   const viewRef = useRef<ViewState>(INITIAL_VIEW_STATE);
 
+  // Keep parent callbacks in refs so our effects/fetchers stay stable — passing
+  // an inline `onBuses` used to re-create fetchBuses every render, which spun the
+  // bus effect into a refetch loop (the thread thrash made the whole map janky).
+  const onVehiclesRef = useRef(onVehicles);
+  onVehiclesRef.current = onVehicles;
+  const onBusesRef = useRef(onBuses);
+  onBusesRef.current = onBuses;
+  const busesOnRef = useRef(filter.buses);
+  busesOnRef.current = filter.buses;
+
   // Basemap + network once.
   useEffect(() => {
     const c = new AbortController();
@@ -96,7 +106,7 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
         if (active && j.vehicles) {
           const sorted = [...j.vehicles].sort((a, b) => (a.id < b.id ? -1 : 1));
           setVehicles(sorted);
-          onVehicles?.(sorted);
+          onVehiclesRef.current?.(sorted);
         }
       } catch {
         /* keep last good positions */
@@ -108,9 +118,9 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
       active = false;
       clearInterval(id);
     };
-  }, [onVehicles]);
+  }, []);
 
-  // Viewport buses — only while the Buses filter is on.
+  // Viewport buses — only while the Buses filter is on. Stable (no prop deps).
   const fetchBuses = useCallback(async () => {
     const v = viewRef.current;
     const vp = new WebMercatorViewport({
@@ -131,24 +141,25 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
         `/api/area?lat=${lat}&lon=${lon}&latSpan=${latSpan}&lonSpan=${lonSpan}`,
       );
       const j = (await r.json()) as { vehicles?: Vehicle[] };
+      if (!busesOnRef.current) return; // toggled off while in flight — drop it
       const next = [...(j.vehicles ?? [])].sort((a, b2) => (a.id < b2.id ? -1 : 1));
       setBuses(next);
-      onBuses?.(next);
+      onBusesRef.current?.(next);
     } catch {
       /* keep last */
     }
-  }, [onBuses]);
+  }, []);
 
   useEffect(() => {
     if (!filter.buses) {
       setBuses([]);
-      onBuses?.([]);
+      onBusesRef.current?.([]);
       return;
     }
     void fetchBuses();
     const id = setInterval(() => void fetchBuses(), BUS_POLL_MS);
     return () => clearInterval(id);
-  }, [filter.buses, fetchBuses, onBuses]);
+  }, [filter.buses, fetchBuses]);
 
   // Pan/zoom: remember the view, and (debounced) refetch buses for the new area.
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -255,7 +266,8 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
       radiusMinPixels: 2,
       getFillColor: (d) => [BUS_COLOR[0], BUS_COLOR[1], BUS_COLOR[2], staleAlpha(d)],
       stroked: false,
-      transitions: { getPosition: { duration: POSITION_TWEEN_MS } },
+      // No position tween: bus membership churns as you pan/zoom, and deck's
+      // index-matched transitions would slide dots between unrelated buses.
       onClick: selectVehicle,
     }),
     new ScatterplotLayer<Vehicle>({
