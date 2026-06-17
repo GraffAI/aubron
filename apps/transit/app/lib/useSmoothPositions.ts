@@ -14,6 +14,8 @@ interface TrackGlide {
   shape: number;
   fromDist: number;
   toDist: number;
+  /** Direction of travel along the shape (+1 increasing distance, −1 decreasing). */
+  dir: number;
   start: number;
 }
 interface LineGlide {
@@ -151,13 +153,13 @@ export function useSmoothPositions(
       if (track && anchor) {
         const shape = anchor.shape;
         const predM = predictMeters(v, mNow);
-        // Predict in the track direction that matches the train's heading.
-        let dir = 1;
-        if (predM > 0) {
-          const tb = track.bearingAt(v.routeId, anchor);
-          const diff = Math.abs(((mNow.heading - tb + 540) % 360) - 180);
-          dir = diff < 90 ? 1 : -1;
-        }
+        // Which way along the shape the train travels — measured heading when we
+        // have it, else the feed's reported orientation. Drives both the forward
+        // prediction and the icon's facing as it rounds curves.
+        const travelHeading = Number.isNaN(mNow.heading) ? v.heading : mNow.heading;
+        const tb = track.bearingAt(v.routeId, anchor);
+        const diff = Math.abs(((travelHeading - tb + 540) % 360) - 180);
+        const dir = diff < 90 ? 1 : -1;
         const len = track.len(v.routeId, shape);
         const toDist = Math.max(0, Math.min(len, anchor.dist + dir * predM));
         // Keep a persisting glide on the same shape; snap on appear/teleport.
@@ -172,6 +174,7 @@ export function useSmoothPositions(
           shape,
           fromDist,
           toDist,
+          dir,
           start: now,
         });
       } else {
@@ -204,10 +207,15 @@ export function useSmoothPositions(
         const t = Math.min(1, (t0 - g.start) / durationMs);
         let lon: number;
         let lat: number;
+        let heading = g.v.heading;
         if (g.kind === "track" && track) {
           if (g.fromDist !== g.toDist && t < 1) animating = true;
           const d = g.fromDist + (g.toDist - g.fromDist) * t;
-          [lon, lat] = track.pointAt(g.routeId, { shape: g.shape, dist: d });
+          const cursor = { shape: g.shape, dist: d };
+          [lon, lat] = track.pointAt(g.routeId, cursor);
+          // Face along the track at the current spot, so the icon rotates through
+          // curves instead of holding the last fix's angle for the whole glide.
+          heading = (track.bearingAt(g.routeId, cursor) + (g.dir < 0 ? 180 : 0)) % 360;
         } else if (g.kind === "line") {
           if ((g.fromLon !== g.toLon || g.fromLat !== g.toLat) && t < 1) animating = true;
           lon = g.fromLon + (g.toLon - g.fromLon) * t;
@@ -216,7 +224,7 @@ export function useSmoothPositions(
           lon = g.v.lon;
           lat = g.v.lat;
         }
-        out.push({ ...g.v, lon, lat });
+        out.push({ ...g.v, lon, lat, heading });
       }
       setFrame(out);
       if (animating) rafRef.current = requestAnimationFrame(tick);
