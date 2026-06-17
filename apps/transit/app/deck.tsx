@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { type Basemap, loadBasemap } from "./lib/basemap";
 import { COLORS, LINE_COLORS, type RGBA } from "./lib/theme";
+import { TrackIndex } from "./lib/track";
 import {
   type Filter,
   isOnTime,
@@ -24,20 +25,26 @@ import {
 } from "./lib/transit";
 import { usePageVisible, useSmoothPositions } from "./lib/useSmoothPositions";
 
-// The live feed only refreshes a vehicle's GPS every ~25-30s (measured), so we
-// poll a touch faster to catch updates, and interpolate over ~the update gap so
-// motion is continuous. Interpolation is keyed by tripId in useSmoothPositions
-// (not deck's index-based transitions, which swap vehicles when the set changes).
+// The live feed refreshes a train's GPS every ~20s (median; measured 15-30s, with
+// a tail past 60s) and each fix already arrives ~18s stale. We poll a touch faster
+// to catch updates, and useSmoothPositions carries moving trains forward along the
+// track at their schedule-paced speed so the dot tracks ~real-time rather than
+// lagging the feed. Interpolation is keyed by tripId (not deck's index-based
+// transitions, which swap vehicles when the set changes).
 const RAIL_POLL_MS = 15_000;
 const BUS_POLL_MS = 20_000;
-const POSITION_TWEEN_MS = 26_000;
+const POSITION_TWEEN_MS = 15_000;
+
+// Schedule-only "ghost" trains (no live GPS) render faint — a prediction, not a fix.
+const GHOST_ALPHA = 90;
 
 const ARROW_ICON = `data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M12 2 L20.5 22 L12 17 L3.5 22 Z" fill="white"/></svg>',
 )}`;
 
-// Fade vehicles whose GPS has gone stale (lost signal / parked off-grid).
-const staleAlpha = (v: Vehicle): number => (v.gpsAgeSec && v.gpsAgeSec > 150 ? 110 : 255);
+// Fade ghosts (schedule-only, no GPS) and vehicles whose GPS has gone stale.
+const staleAlpha = (v: Vehicle): number =>
+  !v.hasGps ? GHOST_ALPHA : v.gpsAgeSec && v.gpsAgeSec > 150 ? 110 : 255;
 
 const INITIAL_VIEW_STATE = {
   longitude: -122.33,
@@ -165,8 +172,12 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
   // Pan/zoom: remember the view, and (debounced) refetch buses for the new area.
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Route geometry as a 1-D track, so rail glides ride the rails (buses have no
+  // shapes here, so they fall back to a straight glide inside the hook).
+  const track = useMemo(() => (net ? new TrackIndex(net) : null), [net]);
+
   // Smooth, tripId-keyed interpolation (the fix for trains flying across).
-  const railSmooth = useSmoothPositions(vehicles, POSITION_TWEEN_MS);
+  const railSmooth = useSmoothPositions(vehicles, POSITION_TWEEN_MS, track);
   const busSmooth = useSmoothPositions(buses, POSITION_TWEEN_MS);
 
   const passOnTime = (v: Vehicle) => !filter.onTimeOnly || isOnTime(v.deviation);
@@ -300,7 +311,7 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
       radiusUnits: "pixels",
       getFillColor: (d) => {
         const [r, g, b] = lineColor(d.shortName);
-        return [r, g, b, 55];
+        return [r, g, b, d.hasGps ? 55 : 18];
       },
     }),
     new IconLayer<Vehicle>({
@@ -344,7 +355,11 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
       style={{ position: "absolute", inset: "0" }}
       getCursor={({ isHovering }) => (isHovering ? "pointer" : "grab")}
       getTooltip={({ object }: PickingInfo<Vehicle>) =>
-        object ? { text: `${object.shortName} → ${object.headsign}` } : null
+        object
+          ? {
+              text: `${object.shortName} → ${object.headsign}${object.hasGps ? "" : " (scheduled)"}`,
+            }
+          : null
       }
       onClick={(info: PickingInfo) => {
         if (!info.object) onSelect?.(null);

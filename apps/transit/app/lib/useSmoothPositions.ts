@@ -2,9 +2,22 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { bearing, type TrackIndex } from "./track";
 import type { Vehicle } from "./transit";
 
-interface Track {
+// A glide either runs ALONG a route's track (rail, by meters on a shape) or, when
+// we have no track for the route (buses), straight-line between two points.
+interface TrackGlide {
+  kind: "track";
+  v: Vehicle;
+  routeId: string;
+  shape: number;
+  fromDist: number;
+  toDist: number;
+  start: number;
+}
+interface LineGlide {
+  kind: "line";
   v: Vehicle;
   fromLon: number;
   fromLat: number;
@@ -12,11 +25,30 @@ interface Track {
   toLat: number;
   start: number;
 }
+type Glide = TrackGlide | LineGlide;
 
-// Jumps larger than this — catching up after the tab was backgrounded, a trip
-// reassignment, or a GPS glitch — snap into place instead of flying across the
-// map. Normal updates move a train well under this (~0.5km/refresh).
+// Last confirmed fix per trip, so we can measure how fast it's actually moving.
+interface Motion {
+  lon: number;
+  lat: number;
+  time: number;
+  speed: number; // m/s, from the last two distinct fixes
+  heading: number; // degrees, direction of travel (NaN until we've seen movement)
+}
+
+// Jumps larger than this — catching up after a backgrounded tab, a trip
+// reassignment, or a GPS glitch — snap into place instead of sliding across.
 const SNAP_METERS = 2500;
+// Below this we treat the train as stopped/dwelling and never predict it forward
+// (so it can't be shown leaving a platform it hasn't left).
+const MOVING_MIN_MPS = 2;
+// A new fix has to move this far to count as motion (filters GPS jitter at rest).
+const FIX_EPS_METERS = 15;
+// How far ahead of the last fix we predict. ~one median update interval — enough
+// to close the staleness gap, short enough that a stalled feed can't run a dot off.
+const HORIZON_SEC = 15;
+// Absolute ceiling on a single prediction, regardless of speed.
+const MAX_PREDICT_METERS = 1200;
 
 function metersBetween(aLon: number, aLat: number, bLon: number, bLat: number): number {
   const dLat = (bLat - aLat) * 111_000;
@@ -25,46 +57,142 @@ function metersBetween(aLon: number, aLat: number, bLon: number, bLat: number): 
 }
 
 /**
- * Smoothly interpolate vehicle positions **keyed by tripId** — not by array
- * index, which is what deck.gl's built-in `transitions` use. Index matching
- * cross-animates unrelated vehicles whenever the set changes (a train finishing,
- * a new one starting, or returning to a backgrounded tab), which is what made
- * trains "swap" and fly across the screen.
- *
- * Persistent vehicles glide from their current on-screen spot to the new one;
- * brand-new vehicles appear in place; big jumps snap. Returns a fresh array each
- * animation frame while anything is moving, then goes quiet.
+ * How far along the track to predict this train, in meters. Zero for ghosts,
+ * dwelling/stopped trains, and trains we've not yet seen move — those just glide
+ * to their reported spot. A moving train is carried forward at its observed speed,
+ * but capped by its ETA to the next stop and kept short of that stop, so it paces
+ * toward arrival (variable speed) and never fakes a departure.
  */
-export function useSmoothPositions(target: Vehicle[], durationMs: number): Vehicle[] {
-  const tracks = useRef(new Map<string, Track>());
+function predictMeters(v: Vehicle, m: Motion | undefined): number {
+  if (!v.hasGps || !m || Number.isNaN(m.heading) || m.speed < MOVING_MIN_MPS) return 0;
+  let pace = m.speed;
+  let cap = MAX_PREDICT_METERS;
+  if (
+    v.nextStopTimeOffset &&
+    v.nextStopTimeOffset > 0 &&
+    v.nextStopLon != null &&
+    v.nextStopLat != null
+  ) {
+    const toNext = metersBetween(v.lon, v.lat, v.nextStopLon, v.nextStopLat);
+    pace = Math.min(pace, toNext / v.nextStopTimeOffset); // don't outrun the ETA
+    cap = Math.min(cap, 0.85 * toNext); // stay short of the stop until a fix confirms arrival
+  }
+  return Math.min(pace * HORIZON_SEC, cap);
+}
+
+/**
+ * Smoothly interpolate vehicle positions **keyed by tripId** (not array index,
+ * which is what deck.gl's built-in transitions use and what made trains swap and
+ * fly across the map when the set changed).
+ *
+ * When a `track` is supplied and covers the route (rail), positions ride the
+ * rails: each fix snaps to the nearest point on the line, a moving train is
+ * carried forward along the track by its schedule-paced prediction, and the glide
+ * runs in meters along the shape — so it follows curves and decelerates into
+ * stops instead of straight-lining. Routes with no track (buses) fall back to a
+ * straight glide between fixes. Big jumps snap; everything goes quiet when still.
+ */
+export function useSmoothPositions(
+  target: Vehicle[],
+  durationMs: number,
+  track?: TrackIndex | null,
+): Vehicle[] {
+  const glides = useRef(new Map<string, Glide>());
+  const motion = useRef(new Map<string, Motion>());
   const rafRef = useRef(0);
   const [frame, setFrame] = useState<Vehicle[]>(target);
 
   useEffect(() => {
     const now = performance.now();
-    const prev = tracks.current;
-    const next = new Map<string, Track>();
+    const wall = Date.now();
+    const prev = glides.current;
+    const next = new Map<string, Glide>();
+
     for (const v of target) {
       const p = prev.get(v.id);
+
       // Where this vehicle is being drawn right now (mid-glide if it persisted).
       let curLon = v.lon;
       let curLat = v.lat;
       if (p) {
         const t = Math.min(1, (now - p.start) / durationMs);
-        curLon = p.fromLon + (p.toLon - p.fromLon) * t;
-        curLat = p.fromLat + (p.toLat - p.fromLat) * t;
+        if (p.kind === "track" && track) {
+          const d = p.fromDist + (p.toDist - p.fromDist) * t;
+          [curLon, curLat] = track.pointAt(p.routeId, { shape: p.shape, dist: d });
+        } else if (p.kind === "line") {
+          curLon = p.fromLon + (p.toLon - p.fromLon) * t;
+          curLat = p.fromLat + (p.toLat - p.fromLat) * t;
+        }
       }
-      const snap = !p || metersBetween(curLon, curLat, v.lon, v.lat) > SNAP_METERS;
-      next.set(v.id, {
-        v,
-        fromLon: snap ? v.lon : curLon,
-        fromLat: snap ? v.lat : curLat,
-        toLon: v.lon,
-        toLat: v.lat,
-        start: now,
-      });
+
+      // Track the train's real speed/heading from successive distinct fixes.
+      const m = motion.current.get(v.id);
+      let mNow: Motion;
+      if (m && metersBetween(m.lon, m.lat, v.lon, v.lat) > FIX_EPS_METERS) {
+        const dt = Math.max(1, (wall - m.time) / 1000);
+        mNow = {
+          lon: v.lon,
+          lat: v.lat,
+          time: wall,
+          speed: metersBetween(m.lon, m.lat, v.lon, v.lat) / dt,
+          heading: bearing(m.lon, m.lat, v.lon, v.lat),
+        };
+        motion.current.set(v.id, mNow);
+      } else if (m) {
+        mNow = m; // same fix repeated — keep the last measured speed/heading
+      } else {
+        mNow = { lon: v.lon, lat: v.lat, time: wall, speed: 0, heading: NaN };
+        motion.current.set(v.id, mNow);
+      }
+
+      const jump = p ? metersBetween(curLon, curLat, v.lon, v.lat) : Infinity;
+      const anchor = track?.snap(v.routeId, v.lon, v.lat);
+
+      if (track && anchor) {
+        const shape = anchor.shape;
+        const predM = predictMeters(v, mNow);
+        // Predict in the track direction that matches the train's heading.
+        let dir = 1;
+        if (predM > 0) {
+          const tb = track.bearingAt(v.routeId, anchor);
+          const diff = Math.abs(((mNow.heading - tb + 540) % 360) - 180);
+          dir = diff < 90 ? 1 : -1;
+        }
+        const len = track.len(v.routeId, shape);
+        const toDist = Math.max(0, Math.min(len, anchor.dist + dir * predM));
+        // Keep a persisting glide on the same shape; snap on appear/teleport.
+        let fromDist = anchor.dist;
+        if (p && jump <= SNAP_METERS) {
+          fromDist = track.snapToShape(v.routeId, shape, curLon, curLat) ?? anchor.dist;
+        }
+        next.set(v.id, {
+          kind: "track",
+          v,
+          routeId: v.routeId,
+          shape,
+          fromDist,
+          toDist,
+          start: now,
+        });
+      } else {
+        const snap = !p || jump > SNAP_METERS;
+        next.set(v.id, {
+          kind: "line",
+          v,
+          fromLon: snap ? v.lon : curLon,
+          fromLat: snap ? v.lat : curLat,
+          toLon: v.lon,
+          toLat: v.lat,
+          start: now,
+        });
+      }
     }
-    tracks.current = next;
+    glides.current = next;
+
+    // Drop motion state for trips that have left the set.
+    for (const id of motion.current.keys()) {
+      if (!next.has(id)) motion.current.delete(id);
+    }
 
     // One self-terminating rAF chain per target update (cancel any in flight).
     cancelAnimationFrame(rafRef.current);
@@ -72,21 +200,29 @@ export function useSmoothPositions(target: Vehicle[], durationMs: number): Vehic
       const t0 = performance.now();
       let animating = false;
       const out: Vehicle[] = [];
-      for (const trk of tracks.current.values()) {
-        const moving = trk.fromLon !== trk.toLon || trk.fromLat !== trk.toLat;
-        const t = Math.min(1, (t0 - trk.start) / durationMs);
-        if (moving && t < 1) animating = true;
-        out.push({
-          ...trk.v,
-          lon: trk.fromLon + (trk.toLon - trk.fromLon) * t,
-          lat: trk.fromLat + (trk.toLat - trk.fromLat) * t,
-        });
+      for (const g of glides.current.values()) {
+        const t = Math.min(1, (t0 - g.start) / durationMs);
+        let lon: number;
+        let lat: number;
+        if (g.kind === "track" && track) {
+          if (g.fromDist !== g.toDist && t < 1) animating = true;
+          const d = g.fromDist + (g.toDist - g.fromDist) * t;
+          [lon, lat] = track.pointAt(g.routeId, { shape: g.shape, dist: d });
+        } else if (g.kind === "line") {
+          if ((g.fromLon !== g.toLon || g.fromLat !== g.toLat) && t < 1) animating = true;
+          lon = g.fromLon + (g.toLon - g.fromLon) * t;
+          lat = g.fromLat + (g.toLat - g.fromLat) * t;
+        } else {
+          lon = g.v.lon;
+          lat = g.v.lat;
+        }
+        out.push({ ...g.v, lon, lat });
       }
       setFrame(out);
       if (animating) rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
-  }, [target, durationMs]);
+  }, [target, durationMs, track]);
 
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 

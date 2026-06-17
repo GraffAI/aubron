@@ -130,6 +130,14 @@ interface ObaTrip {
     occupancyCapacity?: number;
     lastLocationUpdateTime?: number;
     predicted?: boolean;
+    /** Meters along the trip shape; −1 when there's no live GPS fix. */
+    distanceAlongTrip?: number;
+    nextStop?: string;
+    nextStopTimeOffset?: number;
+    closestStop?: string;
+    closestStopTimeOffset?: number;
+    /** "in_progress" once the trip is actually running. */
+    phase?: string;
   };
 }
 
@@ -141,19 +149,71 @@ interface ObaTripRef {
 
 interface TripsResponse {
   list: ObaTrip[];
-  references: { trips: ObaTripRef[]; routes: ObaRoute[] };
+  references: { trips: ObaTripRef[]; routes: ObaRoute[]; stops: ObaStop[] };
+}
+
+/**
+ * Position a schedule-only "ghost" (no live GPS) between the stop it's nearest to
+ * and the one it's heading for, by the ratio of their time offsets. Approximate —
+ * the client snaps it to the rails — but it creeps along as the offsets tick down.
+ */
+function ghostPosition(
+  closest: ObaStop | undefined,
+  next: ObaStop | undefined,
+  closestOff: number | undefined,
+  nextOff: number | undefined,
+): { lon: number; lat: number } | null {
+  if (closest && next && closest.id !== next.id && closestOff != null && nextOff != null) {
+    const behind = Math.max(0, -closestOff); // seconds since the closest stop, if passed
+    const ahead = Math.max(0, nextOff);
+    const span = behind + ahead;
+    const f = span > 0 ? Math.min(1, behind / span) : 0;
+    return {
+      lon: closest.lon + (next.lon - closest.lon) * f,
+      lat: closest.lat + (next.lat - closest.lat) * f,
+    };
+  }
+  const s = next ?? closest;
+  return s ? { lon: s.lon, lat: s.lat } : null;
 }
 
 /**
  * Build a Vehicle from a trip using its TRUE route (from references), not the
  * route we happened to query — trips-for-route mixes in trains from other routes
  * that share track (e.g. a 1 Line train shows up under the 2 Line query). `now`
- * is the server clock for an accurate GPS-age.
+ * is the server clock for an accurate GPS-age. Rail trips that are in progress but
+ * have no live GPS are kept as schedule-only "ghosts" (positioned from their stops).
  */
-function toVehicle(trip: ObaTrip, route: ObaRoute, headsign: string, now: number): Vehicle | null {
+function toVehicle(
+  trip: ObaTrip,
+  route: ObaRoute,
+  headsign: string,
+  now: number,
+  stops: Map<string, ObaStop>,
+): Vehicle | null {
   const s = trip.status;
-  const pos = s?.position ?? s?.lastKnownLocation;
-  if (!pos || (pos.lat === 0 && pos.lon === 0)) return null;
+  const dat = s?.distanceAlongTrip;
+  const livePos = s?.position ?? s?.lastKnownLocation;
+  const hasGps =
+    !!livePos && !(livePos.lat === 0 && livePos.lon === 0) && (dat == null || dat >= 0);
+  const nextStop = s?.nextStop ? stops.get(s.nextStop) : undefined;
+
+  let lon: number;
+  let lat: number;
+  if (hasGps) {
+    lon = livePos!.lon;
+    lat = livePos!.lat;
+  } else {
+    // Only place ghosts for rail trips actually underway — never buses, never
+    // not-yet-started or finished trips.
+    if (!isRailType(route.type) || s?.phase !== "in_progress") return null;
+    const closest = s?.closestStop ? stops.get(s.closestStop) : undefined;
+    const ghost = ghostPosition(closest, nextStop, s?.closestStopTimeOffset, s?.nextStopTimeOffset);
+    if (!ghost) return null;
+    lon = ghost.lon;
+    lat = ghost.lat;
+  }
+
   const updated = s?.lastLocationUpdateTime;
   return {
     id: trip.tripId,
@@ -161,16 +221,21 @@ function toVehicle(trip: ObaTrip, route: ObaRoute, headsign: string, now: number
     routeId: route.id,
     shortName: route.shortName ?? route.id,
     mode: modeFromType(route.type),
-    lon: pos.lon,
-    lat: pos.lat,
+    lon,
+    lat,
     heading: orientationToHeading(s?.orientation ?? 0),
     deviation: s?.scheduleDeviation ?? 0,
     occupancy: s?.occupancyStatus ?? "",
     occupancyCount: s?.occupancyCount,
     occupancyCapacity: s?.occupancyCapacity,
-    gpsAgeSec: updated ? Math.max(0, Math.round((now - updated) / 1000)) : undefined,
+    gpsAgeSec: hasGps && updated ? Math.max(0, Math.round((now - updated) / 1000)) : undefined,
     predicted: s?.predicted ?? false,
     headsign: headsign || route.longName || "",
+    hasGps,
+    distanceAlongTrip: dat,
+    nextStopLon: nextStop?.lon,
+    nextStopLat: nextStop?.lat,
+    nextStopTimeOffset: s?.nextStopTimeOffset,
   };
 }
 
@@ -199,11 +264,12 @@ async function collectVehicles(
       const now = Date.now();
       const trips = new Map(data.references.trips.map((t) => [t.id, t]));
       const routes = new Map(data.references.routes.map((r) => [r.id, r]));
+      const stops = new Map((data.references.stops ?? []).map((s) => [s.id, s]));
       for (const trip of data.list) {
         const ref = trips.get(trip.tripId);
         const route = ref?.routeId ? routes.get(ref.routeId) : undefined;
         if (!route || !keepRoute(route)) continue;
-        const v = toVehicle(trip, route, ref?.tripHeadsign ?? "", now);
+        const v = toVehicle(trip, route, ref?.tripHeadsign ?? "", now, stops);
         if (v) byTrip.set(trip.tripId, v);
       }
     }),
