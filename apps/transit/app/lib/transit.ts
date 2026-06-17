@@ -52,6 +52,15 @@ export interface Vehicle {
   gpsAgeSec?: number;
   predicted: boolean;
   headsign: string;
+  /** False for schedule-only "ghost" trains running with no live GPS fix. */
+  hasGps: boolean;
+  /** Meters along the trip shape (OBA distanceAlongTrip); −1/absent when no GPS. */
+  distanceAlongTrip?: number;
+  /** Next stop position + ETA, for schedule-paced forward prediction. */
+  nextStopLon?: number;
+  nextStopLat?: number;
+  /** Seconds until the next stop (OBA nextStopTimeOffset). */
+  nextStopTimeOffset?: number;
 }
 
 /** One upcoming stop on a selected trip, with its predicted arrival. */
