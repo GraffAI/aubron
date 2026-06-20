@@ -8,6 +8,7 @@ import {
   MapView,
   PathLayer,
   ScatterplotLayer,
+  TextLayer,
   WebMercatorViewport,
 } from "deck.gl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -23,7 +24,7 @@ import {
   type StopInfo,
   type Vehicle,
 } from "./lib/transit";
-import { usePageVisible, useSmoothPositions } from "./lib/useSmoothPositions";
+import { type SmoothVehicle, usePageVisible, useSmoothPositions } from "./lib/useSmoothPositions";
 
 // The live feed refreshes a train's GPS every ~20s (median; measured 15-30s, with
 // a tail past 60s) and each fix already arrives ~18s stale. We poll a touch faster
@@ -37,6 +38,12 @@ const POSITION_TWEEN_MS = 15_000;
 
 // Schedule-only "ghost" trains (no live GPS) render faint — a prediction, not a fix.
 const GHOST_ALPHA = 90;
+
+// Debug overlay palette — keep in sync with the legend in map-stage.tsx.
+const DBG_RAW: RGBA = [255, 64, 170, 255]; // last raw GPS fix
+const DBG_ANCHOR: RGBA = [255, 176, 32, 255]; // fix snapped onto the track
+const DBG_SMOOTH: RGBA = [90, 220, 255, 255]; // interpolated (drawn) position
+const DBG_TARGET: RGBA = [80, 240, 140, 255]; // where the glide is heading
 
 const ARROW_ICON = `data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M12 2 L20.5 22 L12 17 L3.5 22 Z" fill="white"/></svg>',
@@ -177,7 +184,7 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
   const track = useMemo(() => (net ? new TrackIndex(net) : null), [net]);
 
   // Smooth, tripId-keyed interpolation (the fix for trains flying across).
-  const railSmooth = useSmoothPositions(vehicles, POSITION_TWEEN_MS, track);
+  const railSmooth = useSmoothPositions(vehicles, POSITION_TWEEN_MS, track, filter.debug);
   const busSmooth = useSmoothPositions(buses, POSITION_TWEEN_MS);
 
   const passOnTime = (v: Vehicle) => !filter.onTimeOnly || isOnTime(v.deviation);
@@ -338,9 +345,93 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
     }),
   ];
 
+  // Debug overlay: peel back each train to its raw fix, the snapped anchor, the
+  // smooth drawn position, and the prediction target it's gliding toward — plus a
+  // ring/label for how stale the fix is. Rebuilt per frame alongside the trains.
+  const dbg = filter.debug
+    ? railShown.filter(
+        (d): d is SmoothVehicle & { debug: NonNullable<SmoothVehicle["debug"]> } => !!d.debug,
+      )
+    : [];
+  const debugLayers = filter.debug
+    ? [
+        new PathLayer<(typeof dbg)[number]>({
+          id: "dbg-path",
+          data: dbg,
+          getPath: (d) => [
+            [d.debug.rawLon, d.debug.rawLat],
+            [d.debug.anchorLon, d.debug.anchorLat],
+            [d.debug.targetLon, d.debug.targetLat],
+          ],
+          getColor: [255, 176, 32, 110],
+          widthUnits: "pixels",
+          getWidth: 1,
+          widthMinPixels: 1,
+        }),
+        new ScatterplotLayer<(typeof dbg)[number]>({
+          id: "dbg-age",
+          data: dbg,
+          getPosition: (d) => [d.debug.rawLon, d.debug.rawLat],
+          // Ring grows with the age of the fix (capped so a parked train stays sane).
+          getRadius: (d) => 3 + Math.min(40, d.debug.gpsAgeSec ?? 0) * 0.4,
+          radiusUnits: "pixels",
+          stroked: true,
+          filled: false,
+          getLineColor: [DBG_RAW[0], DBG_RAW[1], DBG_RAW[2], 90],
+          lineWidthUnits: "pixels",
+          getLineWidth: 1,
+        }),
+        new ScatterplotLayer<(typeof dbg)[number]>({
+          id: "dbg-target",
+          data: dbg,
+          getPosition: (d) => [d.debug.targetLon, d.debug.targetLat],
+          getRadius: 2.5,
+          radiusUnits: "pixels",
+          getFillColor: DBG_TARGET,
+        }),
+        new ScatterplotLayer<(typeof dbg)[number]>({
+          id: "dbg-anchor",
+          data: dbg,
+          getPosition: (d) => [d.debug.anchorLon, d.debug.anchorLat],
+          getRadius: 2.5,
+          radiusUnits: "pixels",
+          getFillColor: DBG_ANCHOR,
+        }),
+        new ScatterplotLayer<(typeof dbg)[number]>({
+          id: "dbg-raw",
+          data: dbg,
+          getPosition: (d) => [d.debug.rawLon, d.debug.rawLat],
+          getRadius: 3,
+          radiusUnits: "pixels",
+          getFillColor: DBG_RAW,
+        }),
+        new ScatterplotLayer<(typeof dbg)[number]>({
+          id: "dbg-smooth",
+          data: dbg,
+          getPosition: (d) => [d.lon, d.lat],
+          getRadius: 2,
+          radiusUnits: "pixels",
+          getFillColor: DBG_SMOOTH,
+        }),
+        new TextLayer<(typeof dbg)[number]>({
+          id: "dbg-age-text",
+          data: dbg,
+          getPosition: (d) => [d.debug.rawLon, d.debug.rawLat],
+          getText: (d) => `${d.debug.gpsAgeSec ?? "?"}s · ${(d.debug.speed * 3.6).toFixed(0)}km/h`,
+          getSize: 9,
+          sizeUnits: "pixels",
+          getColor: [255, 255, 255, 180],
+          getPixelOffset: [0, -12],
+          getTextAnchor: "middle",
+          getAlignmentBaseline: "bottom",
+          fontFamily: "ui-monospace, monospace",
+        }),
+      ]
+    : [];
+
   return (
     <DeckGL
-      layers={[...baseLayers, ...routeLayers, ...vehicleLayers]}
+      layers={[...baseLayers, ...routeLayers, ...vehicleLayers, ...debugLayers]}
       views={new MapView({ repeat: false })}
       initialViewState={INITIAL_VIEW_STATE}
       controller={{ dragRotate: false }}
