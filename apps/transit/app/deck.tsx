@@ -26,13 +26,15 @@ import {
 } from "./lib/transit";
 import { type SmoothVehicle, usePageVisible, useSmoothPositions } from "./lib/useSmoothPositions";
 
-// The live feed refreshes a train's GPS every ~20s (median; measured 15-30s, with
-// a tail past 60s) and each fix already arrives ~18s stale. We poll a touch faster
-// to catch updates, and useSmoothPositions carries moving trains forward along the
-// track at their schedule-paced speed so the dot tracks ~real-time rather than
-// lagging the feed. Interpolation is keyed by tripId (not deck's index-based
-// transitions, which swap vehicles when the set changes).
-const RAIL_POLL_MS = 15_000;
+// The upstream feed refreshes all trains together in bursts every ~16s (measured),
+// and each fix already arrives ~18s stale — a lag no poll rate can undo. We poll at
+// ~half the burst period so we catch each batch within ~8s (15s would beat in and
+// out of phase with the 16s cadence); /api/vehicles memoizes ~5s so this doesn't
+// multiply upstream load. useSmoothPositions then carries moving trains forward
+// along the track at their schedule-paced speed so the dot tracks ~real-time.
+// Interpolation is keyed by tripId (not deck's index-based transitions, which swap
+// vehicles when the set changes).
+const RAIL_POLL_MS = 8_000;
 const BUS_POLL_MS = 20_000;
 const POSITION_TWEEN_MS = 15_000;
 
