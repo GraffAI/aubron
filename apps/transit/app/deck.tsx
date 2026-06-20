@@ -1,8 +1,9 @@
 "use client";
 
 import DeckGL from "@deck.gl/react";
-import type { PickingInfo } from "deck.gl";
+import type { MapViewState, PickingInfo } from "deck.gl";
 import {
+  FlyToInterpolator,
   GeoJsonLayer,
   IconLayer,
   MapView,
@@ -14,12 +15,15 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { type Basemap, loadBasemap } from "./lib/basemap";
+import { type Focus, fitBounds } from "./lib/camera";
 import { COLORS, LINE_COLORS, type RGBA } from "./lib/theme";
 import { TrackIndex } from "./lib/track";
 import {
   type Filter,
   isOnTime,
+  type Mode,
   type NetworkData,
+  type SelectedLine,
   type ShapeLine,
   type StopInfo,
   type Vehicle,
@@ -66,12 +70,24 @@ const INITIAL_VIEW_STATE = {
 const RAIL_FALLBACK: RGBA = [150, 170, 190, 220];
 const BUS_COLOR = LINE_COLORS.bus ?? RAIL_FALLBACK;
 const lineColor = (shortName: string): RGBA => LINE_COLORS[shortName] ?? RAIL_FALLBACK;
+const routeColor = (shortName: string, mode: Mode): RGBA =>
+  mode === "bus" ? BUS_COLOR : lineColor(shortName);
 
 interface Props {
+  net: NetworkData | null;
   filter: Filter;
+  /** When set, the map isolates to this line and draws its stops prominently. */
+  selectedLine: SelectedLine | null;
+  /** Live vehicles for a selected bus line (rail lines reuse the network feed). */
+  lineBusVehicles: Vehicle[];
+  /** Currently opened station, highlighted on the map. */
+  selectedStopId: string | null;
+  /** Camera target; a new nonce re-triggers the fly even to the same place. */
+  focus: Focus | null;
   onVehicles?: (v: Vehicle[]) => void;
   onBuses?: (v: Vehicle[]) => void;
   onSelect?: (v: Vehicle | null) => void;
+  onSelectStop?: (s: StopInfo | null) => void;
 }
 
 interface ViewState {
@@ -80,11 +96,24 @@ interface ViewState {
   zoom: number;
 }
 
-export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
+export function TransitDeck({
+  net,
+  filter,
+  selectedLine,
+  lineBusVehicles,
+  selectedStopId,
+  focus,
+  onVehicles,
+  onBuses,
+  onSelect,
+  onSelectStop,
+}: Props) {
   const [base, setBase] = useState<Basemap | null>(null);
-  const [net, setNet] = useState<NetworkData | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [buses, setBuses] = useState<Vehicle[]>([]);
+  // initialViewState doubles as the fly trigger: updating it (with transition props)
+  // makes deck glide there, while the controller still owns user pan/zoom.
+  const [viewState, setViewState] = useState<MapViewState>(INITIAL_VIEW_STATE);
   const viewRef = useRef<ViewState>(INITIAL_VIEW_STATE);
   const visible = usePageVisible();
 
@@ -96,18 +125,31 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
   const busesOnRef = useRef(filter.buses);
   busesOnRef.current = filter.buses;
 
-  // Basemap + network once.
+  // Basemap once.
   useEffect(() => {
     const c = new AbortController();
     loadBasemap(c.signal)
       .catch(() => null)
       .then((b) => b && setBase(b));
-    fetch("/api/network", { signal: c.signal })
-      .then((r) => r.json())
-      .then((n: NetworkData) => setNet(n))
-      .catch(() => null);
     return () => c.abort();
   }, []);
+
+  // Smooth camera fly whenever a fresh focus comes in (line picked, station framed).
+  useEffect(() => {
+    if (!focus) return;
+    const width = typeof window === "undefined" ? 1440 : window.innerWidth;
+    const height = typeof window === "undefined" ? 900 : window.innerHeight;
+    const target = fitBounds(focus.bounds, width, height, {
+      padding: focus.padding ?? 90,
+      maxZoom: focus.maxZoom ?? 15,
+    });
+    setViewState({
+      ...INITIAL_VIEW_STATE,
+      ...target,
+      transitionDuration: 1500,
+      transitionInterpolator: new FlyToInterpolator({ speed: 1.6 }),
+    });
+  }, [focus]);
 
   // Rail vehicles, network-wide — only while the tab is foregrounded.
   useEffect(() => {
@@ -134,7 +176,7 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
     };
   }, [visible]);
 
-  // Viewport buses — stable (no prop deps), guarded against stale results.
+  // Viewport buses — only in the ambient overview (a drilled-in line shows its own).
   const fetchBuses = useCallback(async () => {
     const v = viewRef.current;
     const vp = new WebMercatorViewport({
@@ -164,8 +206,9 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
     }
   }, []);
 
+  const overviewBuses = !selectedLine && filter.buses;
   useEffect(() => {
-    if (!filter.buses) {
+    if (!overviewBuses) {
       setBuses([]);
       onBusesRef.current?.([]);
       return;
@@ -174,7 +217,7 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
     void fetchBuses();
     const id = setInterval(() => void fetchBuses(), BUS_POLL_MS);
     return () => clearInterval(id);
-  }, [filter.buses, fetchBuses, visible]);
+  }, [overviewBuses, fetchBuses, visible]);
 
   // Pan/zoom: remember the view, and (debounced) refetch buses for the new area.
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -185,11 +228,26 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
 
   // Smooth, tripId-keyed interpolation (the fix for trains flying across).
   const railSmooth = useSmoothPositions(vehicles, POSITION_TWEEN_MS, track, filter.debug);
-  const busSmooth = useSmoothPositions(buses, POSITION_TWEEN_MS);
+  const busViewportSmooth = useSmoothPositions(buses, POSITION_TWEEN_MS);
+  const busLineSmooth = useSmoothPositions(lineBusVehicles, POSITION_TWEEN_MS);
 
   const passOnTime = (v: Vehicle) => !filter.onTimeOnly || isOnTime(v.deviation);
-  const railShown = railSmooth.filter((v) => filter.lines.has(v.shortName) && passOnTime(v));
-  const busShown = filter.buses ? busSmooth.filter(passOnTime) : [];
+
+  // What rides on the map depends on whether we're drilled into a line.
+  let railShown: SmoothVehicle[];
+  let busShown: SmoothVehicle[];
+  if (selectedLine) {
+    if (selectedLine.mode === "bus") {
+      railShown = [];
+      busShown = busLineSmooth.filter(passOnTime);
+    } else {
+      railShown = railSmooth.filter((v) => v.routeId === selectedLine.routeId && passOnTime(v));
+      busShown = [];
+    }
+  } else {
+    railShown = railSmooth.filter((v) => filter.lines.has(v.shortName) && passOnTime(v));
+    busShown = filter.buses ? busViewportSmooth.filter(passOnTime) : [];
+  }
 
   // Static layers don't change per animation frame — memoize so only the vehicle
   // layers rebuild at 60fps.
@@ -246,8 +304,9 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
     ];
   }, [base]);
 
-  const routeLayers = useMemo(() => {
-    if (!net) return [];
+  // Overview routes: every rail line the filter has on, with faint shared stops.
+  const overviewRouteLayers = useMemo(() => {
+    if (!net || selectedLine) return [];
     const shown = net.shapes.filter((sh) => filter.lines.has(sh.shortName));
     return [
       new PathLayer<ShapeLine>({
@@ -288,7 +347,84 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
         getLineWidth: 1,
       }),
     ];
-  }, [net, filter.lines]);
+  }, [net, filter.lines, selectedLine]);
+
+  // Drilled-in line: the chosen line drawn bold, its stops big, named, and clickable.
+  const lineLayers = useMemo(() => {
+    if (!selectedLine) return [];
+    const col = routeColor(selectedLine.shortName, selectedLine.mode);
+    const [r, g, b] = col;
+    return [
+      new PathLayer<ShapeLine>({
+        id: "line-glow",
+        data: selectedLine.shapes,
+        getPath: (d) => d.path,
+        getColor: [r, g, b, 60],
+        widthUnits: "pixels",
+        getWidth: 14,
+        capRounded: true,
+        jointRounded: true,
+      }),
+      new PathLayer<ShapeLine>({
+        id: "line",
+        data: selectedLine.shapes,
+        getPath: (d) => d.path,
+        getColor: [r, g, b, 255],
+        widthUnits: "pixels",
+        getWidth: 3.6,
+        widthMinPixels: 2.5,
+        capRounded: true,
+        jointRounded: true,
+      }),
+      // Soft halo so stops read as touchable targets.
+      new ScatterplotLayer<StopInfo>({
+        id: "line-stop-halo",
+        data: selectedLine.stops,
+        getPosition: (d) => [d.lon, d.lat],
+        getRadius: (d) => (d.id === selectedStopId ? 13 : 8),
+        radiusUnits: "pixels",
+        getFillColor: (d) => [r, g, b, d.id === selectedStopId ? 70 : 28],
+        updateTriggers: { getRadius: selectedStopId, getFillColor: selectedStopId },
+      }),
+      new ScatterplotLayer<StopInfo>({
+        id: "line-stops",
+        data: selectedLine.stops,
+        pickable: true,
+        getPosition: (d) => [d.lon, d.lat],
+        getRadius: (d) => (d.id === selectedStopId ? 6 : 4.5),
+        radiusUnits: "pixels",
+        radiusMinPixels: 3.5,
+        getFillColor: (d) => (d.id === selectedStopId ? [r, g, b, 255] : [10, 14, 20, 255]),
+        stroked: true,
+        getLineColor: [r, g, b, 255],
+        lineWidthUnits: "pixels",
+        getLineWidth: 1.6,
+        onClick: (info: PickingInfo<StopInfo>) => {
+          onSelectStop?.(info.object ?? null);
+          return true;
+        },
+        updateTriggers: { getRadius: selectedStopId, getFillColor: selectedStopId },
+      }),
+      new TextLayer<StopInfo>({
+        id: "line-stop-labels",
+        data: selectedLine.stops,
+        getPosition: (d) => [d.lon, d.lat],
+        getText: (d) => d.name,
+        getSize: 11,
+        sizeUnits: "pixels",
+        getColor: (d) => (d.id === selectedStopId ? [255, 255, 255, 235] : [220, 230, 240, 150]),
+        getPixelOffset: [0, -12],
+        getTextAnchor: "middle",
+        getAlignmentBaseline: "bottom",
+        fontFamily: "ui-sans-serif, system-ui, sans-serif",
+        fontWeight: 600,
+        outlineWidth: 2,
+        outlineColor: [3, 6, 10, 255],
+        fontSettings: { sdf: true },
+        updateTriggers: { getColor: selectedStopId },
+      }),
+    ];
+  }, [selectedLine, selectedStopId, onSelectStop]);
 
   const selectVehicle = (info: PickingInfo<Vehicle>) => {
     onSelect?.(info.object ?? null);
@@ -303,12 +439,13 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
       data: busShown,
       pickable: true,
       getPosition: (d) => [d.lon, d.lat],
-      getRadius: 2.8,
+      getRadius: selectedLine ? 4 : 2.8,
       radiusUnits: "pixels",
       radiusMinPixels: 2,
       getFillColor: (d) => [BUS_COLOR[0], BUS_COLOR[1], BUS_COLOR[2], staleAlpha(d)],
       stroked: false,
       onClick: selectVehicle,
+      updateTriggers: { getRadius: !!selectedLine },
     }),
     new ScatterplotLayer<Vehicle>({
       id: "vehicle-glow",
@@ -431,28 +568,37 @@ export function TransitDeck({ filter, onVehicles, onBuses, onSelect }: Props) {
 
   return (
     <DeckGL
-      layers={[...baseLayers, ...routeLayers, ...vehicleLayers, ...debugLayers]}
+      layers={[
+        ...baseLayers,
+        ...overviewRouteLayers,
+        ...lineLayers,
+        ...vehicleLayers,
+        ...debugLayers,
+      ]}
       views={new MapView({ repeat: false })}
-      initialViewState={INITIAL_VIEW_STATE}
+      initialViewState={viewState}
       controller={{ dragRotate: false }}
       onViewStateChange={(p) => {
         const vs = p.viewState as unknown as ViewState;
         viewRef.current = { longitude: vs.longitude, latitude: vs.latitude, zoom: vs.zoom };
-        if (!filter.buses) return;
+        if (!overviewBuses) return;
         if (debounce.current) clearTimeout(debounce.current);
         debounce.current = setTimeout(() => void fetchBuses(), 600);
       }}
       pickingRadius={8}
       style={{ position: "absolute", inset: "0" }}
       getCursor={({ isHovering }) => (isHovering ? "pointer" : "grab")}
-      getTooltip={({ object }: PickingInfo<Vehicle>) =>
-        object
-          ? {
-              text: `${object.shortName} → ${object.headsign}${object.hasGps ? "" : " (scheduled)"}`,
-            }
-          : null
-      }
+      getTooltip={({ object }: PickingInfo<Vehicle | StopInfo>) => {
+        if (!object) return null;
+        if ("headsign" in object) {
+          return {
+            text: `${object.shortName} → ${object.headsign}${object.hasGps ? "" : " (scheduled)"}`,
+          };
+        }
+        return { text: object.name };
+      }}
       onClick={(info: PickingInfo) => {
+        // A click on empty space clears the trip selection (stops handle their own).
         if (!info.object) onSelect?.(null);
       }}
     />

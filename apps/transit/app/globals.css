@@ -36,3 +36,41 @@ body {
 canvas {
   outline: none;
 }
+
+/* Split-flap board: each cell rolls its letter in from the top, Solari-style. */
+@keyframes flap-in {
+  0% {
+    transform: translateY(-58%) scaleY(0.5);
+    opacity: 0;
+  }
+  55% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0) scaleY(1);
+    opacity: 1;
+  }
+}
+
+.flap-char {
+  display: block;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  animation: flap-in 120ms ease-out;
+  will-change: transform, opacity;
+}
+
+/* A faint seam across each tile, like the hinge on a real flap. */
+.flap-cell {
+  position: relative;
+}
+.flap-cell::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}

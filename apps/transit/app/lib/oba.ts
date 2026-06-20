@@ -8,8 +8,11 @@ import {
   modeFromType,
   orientationToHeading,
   type NetworkData,
+  type RouteGeometry,
   type RouteInfo,
   type ShapeLine,
+  type StopArrival,
+  type StopBoard,
   type StopInfo,
   type TripDetail,
   type TripStop,
@@ -71,51 +74,96 @@ async function obaGet<T>(
   throw lastErr;
 }
 
+const toRouteInfo = (r: ObaRoute): RouteInfo => ({
+  id: r.id,
+  shortName: r.shortName ?? r.id,
+  longName: r.longName ?? "",
+  mode: modeFromType(r.type),
+});
+
+/** Every Sound Transit route (cached a day); callers split rail from bus. */
+async function getAgencyRoutes(): Promise<ObaRoute[]> {
+  const data = await obaGet<{ list: ObaRoute[] }>(`routes-for-agency/${AGENCY}`, {}, 60 * 60 * 24);
+  return data.list;
+}
+
 /** Sound Transit's rail routes (light rail + commuter rail; shuttles are buses). */
 async function getRailRoutes(): Promise<RouteInfo[]> {
-  const data = await obaGet<{ list: ObaRoute[] }>(`routes-for-agency/${AGENCY}`, {}, 60 * 60 * 24);
-  return data.list
-    .filter((r) => isRailType(r.type))
-    .map((r) => ({
-      id: r.id,
-      shortName: r.shortName ?? r.id,
-      longName: r.longName ?? "",
-      mode: modeFromType(r.type),
-    }));
+  return (await getAgencyRoutes()).filter((r) => isRailType(r.type)).map(toRouteInfo);
+}
+
+/** Sort routes by short name the way a rider scans a board: numbers, then text. */
+function byShortName(a: RouteInfo, b: RouteInfo): number {
+  const na = Number(a.shortName);
+  const nb = Number(b.shortName);
+  if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+  if (Number.isFinite(na)) return -1;
+  if (Number.isFinite(nb)) return 1;
+  return a.shortName.localeCompare(b.shortName);
+}
+
+/**
+ * Decoded shapes + stops for one route. Shared by the network build (rail, drawn
+ * by default) and the on-demand route loader (a bus line the rider drilled into).
+ */
+async function loadRouteGeometry(
+  routeId: string,
+): Promise<{ shapes: ShapeLine[]; stops: StopInfo[]; shortName: string }> {
+  const data = await obaGet<{
+    entry: { polylines?: { points: string }[] };
+    references: { stops: ObaStop[]; routes: ObaRoute[] };
+  }>(`stops-for-route/${routeId}`, { includePolylines: "true" }, 60 * 60 * 24);
+
+  const route = data.references.routes.find((r) => r.id === routeId);
+  const shortName = route?.shortName ?? routeId;
+  const shapes: ShapeLine[] = [];
+  for (const pl of data.entry.polylines ?? []) {
+    const path = decodePolyline(pl.points);
+    if (path.length > 1) shapes.push({ routeId, shortName, path });
+  }
+  const stops = data.references.stops.map((s) => ({
+    id: s.id,
+    name: s.name,
+    lon: s.lon,
+    lat: s.lat,
+  }));
+  return { shapes, stops, shortName };
+}
+
+/** One route's geometry on demand — used when a rider drills into a bus line. */
+export async function getRouteGeometry(routeId: string): Promise<RouteGeometry> {
+  const { shapes, stops, shortName } = await loadRouteGeometry(routeId);
+  return { routeId, shortName, shapes, stops };
 }
 
 /** Route shapes (decoded polylines) + stops for every rail route. */
 export async function getNetwork(): Promise<NetworkData> {
-  const routes = await getRailRoutes();
+  const agencyRoutes = await getAgencyRoutes();
+  const routes = agencyRoutes.filter((r) => isRailType(r.type)).map(toRouteInfo);
+  const busRoutes = agencyRoutes
+    .filter((r) => r.type === 3)
+    .map(toRouteInfo)
+    .sort(byShortName);
   const shapes: ShapeLine[] = [];
   const stopsById = new Map<string, StopInfo>();
 
   await Promise.all(
     routes.map(async (route) => {
-      let data;
+      let geo;
       try {
-        data = await obaGet<{
-          entry: { polylines?: { points: string }[] };
-          references: { stops: ObaStop[] };
-        }>(`stops-for-route/${route.id}`, { includePolylines: "true" }, 60 * 60 * 24);
+        geo = await loadRouteGeometry(route.id);
       } catch (err) {
         console.error(`stops-for-route ${route.id} failed`, err);
         return;
       }
-
-      for (const pl of data.entry.polylines ?? []) {
-        const path = decodePolyline(pl.points);
-        if (path.length > 1) shapes.push({ routeId: route.id, shortName: route.shortName, path });
-      }
-      for (const s of data.references.stops) {
-        if (!stopsById.has(s.id)) {
-          stopsById.set(s.id, { id: s.id, name: s.name, lon: s.lon, lat: s.lat });
-        }
+      shapes.push(...geo.shapes);
+      for (const s of geo.stops) {
+        if (!stopsById.has(s.id)) stopsById.set(s.id, s);
       }
     }),
   );
 
-  return { routes, shapes, stops: [...stopsById.values()] };
+  return { routes, shapes, stops: [...stopsById.values()], busRoutes };
 }
 
 interface ObaTrip {
@@ -285,6 +333,78 @@ export async function getVehicles(): Promise<Vehicle[]> {
     (r) => isRailType(r.type),
   );
   return [...byTrip.values()];
+}
+
+/** Live vehicles for a single route (the buses on a drilled-into line). */
+export async function getRouteVehicles(routeId: string): Promise<Vehicle[]> {
+  const byTrip = await collectVehicles([routeId], (r) => r.id === routeId);
+  return [...byTrip.values()];
+}
+
+interface ObaArrival {
+  tripId: string;
+  routeId: string;
+  routeShortName?: string;
+  tripHeadsign?: string;
+  scheduledArrivalTime: number;
+  predictedArrivalTime: number;
+  predicted: boolean;
+  numberOfStopsAway?: number;
+  tripStatus?: {
+    position?: { lat: number; lon: number };
+    lastKnownLocation?: { lat: number; lon: number };
+    scheduleDeviation?: number;
+  };
+}
+
+interface ObaStopWithArrivals {
+  entry: { arrivalsAndDepartures?: ObaArrival[] };
+  references: { stops: ObaStop[]; routes: ObaRoute[] };
+}
+
+/** The next arrivals at one stop — the data behind the station departure board. */
+export async function getStopBoard(stopId: string): Promise<StopBoard> {
+  const data = await obaGet<ObaStopWithArrivals>(
+    `arrivals-and-departures-for-stop/${encodeURIComponent(stopId)}`,
+    { minutesAfter: "60" },
+  );
+  const now = Date.now();
+  const stop = data.references.stops.find((s) => s.id === stopId);
+  const routes = new Map(data.references.routes.map((r) => [r.id, r]));
+
+  const arrivals: StopArrival[] = (data.entry.arrivalsAndDepartures ?? [])
+    .map((a): StopArrival => {
+      const arrival =
+        a.predicted && a.predictedArrivalTime ? a.predictedArrivalTime : a.scheduledArrivalTime;
+      const pos = a.tripStatus?.position ?? a.tripStatus?.lastKnownLocation;
+      const route = routes.get(a.routeId);
+      const live = pos && !(pos.lat === 0 && pos.lon === 0);
+      return {
+        tripId: a.tripId,
+        routeId: a.routeId,
+        shortName: a.routeShortName ?? route?.shortName ?? a.routeId,
+        mode: route ? modeFromType(route.type) : "bus",
+        headsign: a.tripHeadsign ?? route?.longName ?? "",
+        arrival,
+        minutesAway: Math.round((arrival - now) / 60000),
+        deviation: a.tripStatus?.scheduleDeviation ?? 0,
+        predicted: a.predicted,
+        stopsAway: a.numberOfStopsAway ?? 99,
+        vehicleLon: live ? pos!.lon : undefined,
+        vehicleLat: live ? pos!.lat : undefined,
+      };
+    })
+    .filter((a) => a.minutesAway >= -2)
+    .sort((a, b) => a.arrival - b.arrival)
+    .slice(0, 8);
+
+  return {
+    stopId,
+    name: stop?.name ?? stopId,
+    lon: stop?.lon ?? 0,
+    lat: stop?.lat ?? 0,
+    arrivals,
+  };
 }
 
 interface ObaTripDetails {
