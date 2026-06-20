@@ -12,11 +12,34 @@ interface TrackGlide {
   v: Vehicle;
   routeId: string;
   shape: number;
+  /** Where the latest fix snapped onto the track (the basis for this glide). */
+  anchorDist: number;
   fromDist: number;
   toDist: number;
   /** Direction of travel along the shape (+1 increasing distance, −1 decreasing). */
   dir: number;
   start: number;
+}
+
+/** Per-train geometry for the debug overlay (only attached when `debug` is on). */
+export interface Debug {
+  /** Last raw GPS fix from the feed. */
+  rawLon: number;
+  rawLat: number;
+  /** That fix snapped onto the track. */
+  anchorLon: number;
+  anchorLat: number;
+  /** Where the glide is carrying the train this cycle (the prediction). */
+  targetLon: number;
+  targetLat: number;
+  /** Measured speed (m/s) and age of the fix (s). */
+  speed: number;
+  gpsAgeSec?: number;
+}
+
+/** A smoothed vehicle, optionally carrying the interpolation's debug geometry. */
+export interface SmoothVehicle extends Vehicle {
+  debug?: Debug;
 }
 interface LineGlide {
   kind: "line";
@@ -98,11 +121,12 @@ export function useSmoothPositions(
   target: Vehicle[],
   durationMs: number,
   track?: TrackIndex | null,
-): Vehicle[] {
+  debug = false,
+): SmoothVehicle[] {
   const glides = useRef(new Map<string, Glide>());
   const motion = useRef(new Map<string, Motion>());
   const rafRef = useRef(0);
-  const [frame, setFrame] = useState<Vehicle[]>(target);
+  const [frame, setFrame] = useState<SmoothVehicle[]>(target);
 
   useEffect(() => {
     const now = performance.now();
@@ -172,6 +196,7 @@ export function useSmoothPositions(
           v,
           routeId: v.routeId,
           shape,
+          anchorDist: anchor.dist,
           fromDist,
           toDist,
           dir,
@@ -202,7 +227,7 @@ export function useSmoothPositions(
     const tick = () => {
       const t0 = performance.now();
       let animating = false;
-      const out: Vehicle[] = [];
+      const out: SmoothVehicle[] = [];
       for (const g of glides.current.values()) {
         const t = Math.min(1, (t0 - g.start) / durationMs);
         let lon: number;
@@ -224,13 +249,41 @@ export function useSmoothPositions(
           lon = g.v.lon;
           lat = g.v.lat;
         }
-        out.push({ ...g.v, lon, lat, heading });
+
+        let dbg: Debug | undefined;
+        if (debug) {
+          let anchorLon = g.v.lon;
+          let anchorLat = g.v.lat;
+          let targetLon = lon;
+          let targetLat = lat;
+          if (g.kind === "track" && track) {
+            [anchorLon, anchorLat] = track.pointAt(g.routeId, {
+              shape: g.shape,
+              dist: g.anchorDist,
+            });
+            [targetLon, targetLat] = track.pointAt(g.routeId, { shape: g.shape, dist: g.toDist });
+          } else if (g.kind === "line") {
+            targetLon = g.toLon;
+            targetLat = g.toLat;
+          }
+          dbg = {
+            rawLon: g.v.lon,
+            rawLat: g.v.lat,
+            anchorLon,
+            anchorLat,
+            targetLon,
+            targetLat,
+            speed: motion.current.get(g.v.id)?.speed ?? 0,
+            gpsAgeSec: g.v.gpsAgeSec,
+          };
+        }
+        out.push({ ...g.v, lon, lat, heading, debug: dbg });
       }
       setFrame(out);
       if (animating) rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
-  }, [target, durationMs, track]);
+  }, [target, durationMs, track, debug]);
 
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 

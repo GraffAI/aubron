@@ -89,6 +89,8 @@ export interface Filter {
   lines: Set<string>;
   buses: boolean;
   onTimeOnly: boolean;
+  /** Debug overlay: expose the raw fix / snap / target behind each train. */
+  debug: boolean;
 }
 
 export const isOnTime = (deviationSec: number): boolean => Math.abs(deviationSec) < 60;

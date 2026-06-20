@@ -30,6 +30,7 @@ export function MapStage() {
     lines: new Set(ALL_LINES),
     buses: false,
     onTimeOnly: false,
+    debug: false,
   });
   const deepLinked = useRef(false);
 
@@ -125,6 +126,12 @@ export function MapStage() {
             onClick={() => setFilter((f) => ({ ...f, onTimeOnly: !f.onTimeOnly }))}
             dot="rgb(110,231,183)"
           />
+          <Toggle
+            label="Debug interp"
+            on={filter.debug}
+            onClick={() => setFilter((f) => ({ ...f, debug: !f.debug }))}
+            dot="rgb(90,220,255)"
+          />
         </div>
         {filter.buses && (
           <div className="mt-1 max-w-[180px] text-right text-[9px] leading-tight text-white/30">
@@ -133,8 +140,37 @@ export function MapStage() {
         )}
       </div>
 
+      {filter.debug && <DebugLegend />}
+
       {selected && <TripPanel vehicle={selected} onClose={() => setSelected(null)} />}
     </main>
+  );
+}
+
+const DEBUG_KEYS: { label: string; dot: string }[] = [
+  { label: "raw GPS fix (+ age ring · age · speed)", dot: "rgb(255,64,170)" },
+  { label: "snapped to track", dot: "rgb(255,176,32)" },
+  { label: "drawn (interpolated)", dot: "rgb(90,220,255)" },
+  { label: "prediction target", dot: "rgb(80,240,140)" },
+];
+
+function DebugLegend() {
+  return (
+    <div className="pointer-events-none absolute bottom-5 left-5 select-none rounded-md border border-white/10 bg-black/40 px-3 py-2 backdrop-blur-sm">
+      <div className="mb-1 text-[9px] uppercase tracking-[0.28em] text-white/40">interpolation</div>
+      <div className="flex flex-col gap-1">
+        {DEBUG_KEYS.map((k) => (
+          <div key={k.label} className="flex items-center gap-2 text-[10px] text-white/70">
+            <span className="inline-block h-2 w-2 rounded-full" style={{ background: k.dot }} />
+            <span>{k.label}</span>
+          </div>
+        ))}
+        <div className="mt-0.5 flex items-center gap-2 text-[10px] text-white/50">
+          <span className="inline-block h-px w-3" style={{ background: "rgb(255,176,32)" }} />
+          <span>fix → snap → target</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
