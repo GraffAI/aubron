@@ -147,7 +147,7 @@ def main() -> int:
                     print(f"    (already alerted at ${prev:.2f}; not re-firing)")
 
     if not args.dry_run:
-        STATE_FILE.write_text(json.dumps(state, indent=2))
+        STATE_FILE.write_text(json.dumps(state, indent=2) + "\n")
     print("=== done" + (" (candidates found!)" if any_alert else " (no qualifying tickets)") + " ===")
     return 0
 
