@@ -186,6 +186,24 @@ export function arrivalState(a: StopArrival): { state: ArrivalState; minutes: nu
   return { state: "soon", minutes: a.minutesAway };
 }
 
+/**
+ * The soonest still-incoming arrival that has a live position in each travel
+ * direction — keyed by headsign, the destination that distinguishes the two ends
+ * of a line. Lets the map frame one approaching train per direction (e.g. a
+ * northbound and a southbound) instead of just the single nearest one. Returned
+ * soonest-first; arrivals without a live fix can't be framed, so they're skipped.
+ */
+export function framableByDirection(arrivals: StopArrival[]): StopArrival[] {
+  const best = new Map<string, StopArrival>();
+  for (const a of arrivals) {
+    if (a.vehicleLon == null || a.vehicleLat == null) continue;
+    const key = a.headsign || a.tripId;
+    const cur = best.get(key);
+    if (!cur || a.arrival < cur.arrival) best.set(key, a);
+  }
+  return [...best.values()].sort((x, y) => x.arrival - y.arrival);
+}
+
 /** UI filter state: which rail lines show, whether buses show, on-time-only. */
 export interface Filter {
   lines: Set<string>;

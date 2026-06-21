@@ -55,6 +55,28 @@ export function boundsOfPaths(paths: [number, number][][]): Bounds | null {
   return b;
 }
 
+/**
+ * Bounds centered on `anchor` that still contain every point in `pts` — by
+ * mirroring each point's offset across the anchor. Framing this box keeps the
+ * anchor dead-center, so adding more points (e.g. an inbound train) only zooms
+ * the camera out; it never pans the anchor off to one side. With no points it's
+ * the zero-area box at the anchor (just centers on it).
+ */
+export function boundsAround(anchor: [number, number], pts: [number, number][]): Bounds {
+  let halfLng = 0;
+  let halfLat = 0;
+  for (const [lon, lat] of pts) {
+    halfLng = Math.max(halfLng, Math.abs(lon - anchor[0]));
+    halfLat = Math.max(halfLat, Math.abs(lat - anchor[1]));
+  }
+  return {
+    minLng: anchor[0] - halfLng,
+    minLat: anchor[1] - halfLat,
+    maxLng: anchor[0] + halfLng,
+    maxLat: anchor[1] + halfLat,
+  };
+}
+
 /** Grow a (possibly zero-area) box outward by a fraction of its span, with a floor. */
 export function padBounds(b: Bounds, frac = 0.15, minDeg = 0.004): Bounds {
   const dLng = Math.max((b.maxLng - b.minLng) * frac, minDeg);

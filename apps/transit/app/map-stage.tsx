@@ -3,17 +3,18 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { boundsOfPaths, boundsOfPoints, type Focus } from "./lib/camera";
+import { boundsAround, boundsOfPaths, type Focus, type Padding } from "./lib/camera";
 import { LINE_COLORS, type RGBA } from "./lib/theme";
-import type {
-  Filter,
-  NetworkData,
-  RouteGeometry,
-  SelectedLine,
-  StopArrival,
-  StopBoard,
-  StopInfo,
-  Vehicle,
+import {
+  framableByDirection,
+  type Filter,
+  type NetworkData,
+  type RouteGeometry,
+  type SelectedLine,
+  type StopArrival,
+  type StopBoard,
+  type StopInfo,
+  type Vehicle,
 } from "./lib/transit";
 import { LineSelector } from "./line-selector";
 import { StationPanel } from "./station-panel";
@@ -29,6 +30,13 @@ const rgba = ([r, g, b, a]: RGBA) => `rgba(${r},${g},${b},${(a ?? 255) / 255})`;
 
 const LINE_POLL_MS = 20_000;
 const BOARD_POLL_MS = 20_000;
+
+// One padding for every station frame — the initial station-only shot and the
+// refined shot that adds approaching trains. Keeping it identical means the
+// station holds the exact same screen position across both, so the refine reads
+// as a smooth zoom-out rather than a pan. Extra room at the bottom clears the
+// station panel.
+const STATION_PADDING: Padding = { top: 100, bottom: 180, left: 140, right: 140 };
 
 export function MapStage() {
   const [net, setNet] = useState<NetworkData | null>(null);
@@ -178,31 +186,34 @@ export function MapStage() {
     };
   }, [stop]);
 
-  // When a station opens, frame it; refine to keep the soonest incoming vehicle in
-  // shot once the board reports one (but don't chase every poll — only on change).
+  // When a station opens, center on it; refine to keep an approaching train per
+  // direction in shot once the board reports them. Both shots are centered on the
+  // station, so the refine only zooms out — no lurch. Don't chase every poll: only
+  // re-frame when the chosen set of trains actually changes.
   useEffect(() => {
     if (!stop) {
       framedTrip.current = null;
       return;
     }
     flyTo({
-      bounds: boundsOfPoints([[stop.lon, stop.lat]])!,
-      padding: { top: 90, bottom: 170, left: 120, right: 120 },
+      bounds: boundsAround([stop.lon, stop.lat], []),
+      padding: STATION_PADDING,
       maxZoom: 14.5,
     });
   }, [stop, flyTo]);
 
   useEffect(() => {
     if (!stop || !board) return;
-    const inc = board.arrivals.find((a) => a.vehicleLon != null && a.vehicleLat != null);
-    if (!inc || framedTrip.current === inc.tripId) return;
-    framedTrip.current = inc.tripId;
-    const b = boundsOfPoints([
+    const incoming = framableByDirection(board.arrivals);
+    if (incoming.length === 0) return;
+    const signature = incoming.map((a) => a.tripId).join(",");
+    if (framedTrip.current === signature) return;
+    framedTrip.current = signature;
+    const bounds = boundsAround(
       [stop.lon, stop.lat],
-      [inc.vehicleLon!, inc.vehicleLat!],
-    ]);
-    if (b)
-      flyTo({ bounds: b, padding: { top: 100, bottom: 180, left: 140, right: 140 }, maxZoom: 14 });
+      incoming.map((a) => [a.vehicleLon!, a.vehicleLat!] as [number, number]),
+    );
+    flyTo({ bounds, padding: STATION_PADDING, maxZoom: 14 });
   }, [board, stop, flyTo]);
 
   const counts = useMemo(() => {
@@ -226,12 +237,8 @@ export function MapStage() {
   const frameArrival = (a: StopArrival) => {
     if (a.vehicleLon == null || a.vehicleLat == null || !stop) return;
     framedTrip.current = a.tripId;
-    const b = boundsOfPoints([
-      [stop.lon, stop.lat],
-      [a.vehicleLon, a.vehicleLat],
-    ]);
-    if (b)
-      flyTo({ bounds: b, padding: { top: 100, bottom: 180, left: 140, right: 140 }, maxZoom: 14 });
+    const bounds = boundsAround([stop.lon, stop.lat], [[a.vehicleLon, a.vehicleLat]]);
+    flyTo({ bounds, padding: STATION_PADDING, maxZoom: 14 });
   };
 
   const toggleLine = (name: string) =>
