@@ -5,10 +5,10 @@ Standing task: alert (via IFTTT webhook) when resale tickets for two Seattle
 
 ## Targets
 
-| Match | Date | Target (all-in price) |
-| --- | --- | --- |
-| **Egypt vs Iran** (Match 63, Group G) | Jun 26, 2026 | upper bowl (~Cat 3) **≤ $250**, lower bowl (~Cat 2) **≤ $300** |
-| **Bosnia vs Qatar** (Match 52, Group B) | Jun 24, 2026 | any seat **≤ $150** |
+| Match                                   | Date         | Target (all-in price)                                          |
+| --------------------------------------- | ------------ | -------------------------------------------------------------- |
+| **Egypt vs Iran** (Match 63, Group G)   | Jun 26, 2026 | upper bowl (~Cat 3) **≤ $250**, lower bowl (~Cat 2) **≤ $300** |
+| **Bosnia vs Qatar** (Match 52, Group B) | Jun 24, 2026 | any seat **≤ $150**                                            |
 
 "All-in" = the total the buyer pays incl. fees (Gametime `price.total`).
 
@@ -33,11 +33,11 @@ On a qualifying listing it POSTs to the IFTTT webhook with:
 The open resale market was ~2× the targets — **nothing qualified**, so no
 webhook was fired:
 
-| Match | Cheapest live (all-in) | Target |
-| --- | --- | --- |
-| Egypt–Iran, upper | $551 | ≤ $250 |
-| Egypt–Iran, lower | $629 | ≤ $300 |
-| Bosnia–Qatar, any | $365 | ≤ $150 |
+| Match             | Cheapest live (all-in) | Target |
+| ----------------- | ---------------------- | ------ |
+| Egypt–Iran, upper | $551                   | ≤ $250 |
+| Egypt–Iran, lower | $629                   | ≤ $300 |
+| Bosnia–Qatar, any | $365                   | ≤ $150 |
 
 FIFA face values (worldcuppass guide): Cat 1 ~$410, Cat 2 ~$310, **Cat 3 ~$140**,
 Cat 4 ~$60–70. Target prices are realistic only on **FIFA's official resale
