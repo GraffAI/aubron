@@ -317,7 +317,7 @@ export function TransitDeck({
         getPath: (d) => d.path,
         getColor: (d) => {
           const [r, g, b] = lineColor(d.shortName);
-          return [r, g, b, 38];
+          return [r, g, b, 28];
         },
         widthUnits: "pixels",
         getWidth: 8,
@@ -361,9 +361,9 @@ export function TransitDeck({
         id: "line-glow",
         data: selectedLine.shapes,
         getPath: (d) => d.path,
-        getColor: [r, g, b, 60],
+        getColor: [r, g, b, 44],
         widthUnits: "pixels",
-        getWidth: 14,
+        getWidth: 12,
         capRounded: true,
         jointRounded: true,
       }),
@@ -435,6 +435,13 @@ export function TransitDeck({
 
   // Vehicle layers — positions already interpolated by useSmoothPositions, so no
   // deck transitions here (those are index-based and caused the swapping).
+  //
+  // A train rides a line drawn in its own color, so the marker is layered for
+  // contrast, not tinted to match: a soft line-colored halo for presence, a
+  // bright body with a dark hairline edge that lifts it off the same-colored
+  // route (the key to spotting trains at any zoom), then a line-colored arrow
+  // on top carrying identity + heading. All pixel-sized, so the train is the
+  // same mark whether you're zoomed to the whole network or a single platform.
   const vehicleLayers = [
     new ScatterplotLayer<Vehicle>({
       id: "buses",
@@ -445,7 +452,15 @@ export function TransitDeck({
       radiusUnits: "pixels",
       radiusMinPixels: 2,
       getFillColor: (d) => [BUS_COLOR[0], BUS_COLOR[1], BUS_COLOR[2], staleAlpha(d)],
-      stroked: false,
+      stroked: true,
+      getLineColor: (d) => [
+        COLORS.markerEdge[0],
+        COLORS.markerEdge[1],
+        COLORS.markerEdge[2],
+        Math.min(160, staleAlpha(d)),
+      ],
+      lineWidthUnits: "pixels",
+      getLineWidth: 0.75,
       onClick: selectVehicle,
       updateTriggers: { getRadius: !!selectedLine },
     }),
@@ -453,12 +468,40 @@ export function TransitDeck({
       id: "vehicle-glow",
       data: railShown,
       getPosition: (d) => [d.lon, d.lat],
-      getRadius: 11,
+      getRadius: selectedLine ? 12 : 10,
       radiusUnits: "pixels",
       getFillColor: (d) => {
         const [r, g, b] = lineColor(d.shortName);
-        return [r, g, b, d.hasGps ? 55 : 18];
+        return [r, g, b, d.hasGps ? 48 : 16];
       },
+      updateTriggers: { getRadius: !!selectedLine },
+    }),
+    new ScatterplotLayer<Vehicle>({
+      id: "vehicle-body",
+      data: railShown,
+      pickable: true,
+      getPosition: (d) => [d.lon, d.lat],
+      getRadius: selectedLine ? 7 : 6,
+      radiusUnits: "pixels",
+      radiusMinPixels: 4,
+      getFillColor: (d) => [
+        COLORS.markerCore[0],
+        COLORS.markerCore[1],
+        COLORS.markerCore[2],
+        staleAlpha(d),
+      ],
+      stroked: true,
+      getLineColor: (d) => [
+        COLORS.markerEdge[0],
+        COLORS.markerEdge[1],
+        COLORS.markerEdge[2],
+        staleAlpha(d),
+      ],
+      lineWidthUnits: "pixels",
+      getLineWidth: 1.25,
+      lineWidthMinPixels: 1,
+      onClick: selectVehicle,
+      updateTriggers: { getRadius: !!selectedLine },
     }),
     new IconLayer<Vehicle>({
       id: "vehicles",
@@ -470,10 +513,10 @@ export function TransitDeck({
         width: 24,
         height: 24,
         anchorX: 12,
-        anchorY: 13,
+        anchorY: 12,
         mask: true,
       }),
-      getSize: 18,
+      getSize: selectedLine ? 11 : 9.5,
       sizeUnits: "pixels",
       getColor: (d) => {
         const [r, g, b] = lineColor(d.shortName);
@@ -481,6 +524,7 @@ export function TransitDeck({
       },
       getAngle: (d) => -d.heading, // icon points north at 0; heading is CW from north
       onClick: selectVehicle,
+      updateTriggers: { getSize: !!selectedLine },
     }),
   ];
 

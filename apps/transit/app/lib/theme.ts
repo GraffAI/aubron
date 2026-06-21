@@ -10,6 +10,12 @@ export const COLORS = {
   waterFill: [12, 22, 34, 255] as RGBA,
   waterEdge: [40, 78, 96, 120] as RGBA,
   road: [120, 134, 158, 32] as RGBA,
+  // Live vehicles ride lines drawn in their own color, so the marker can't *be*
+  // that color or it vanishes into the route. A bright body lifts the train off
+  // the line (it's the brightest mark on the map — the "signal"); a dark hairline
+  // edge crisps it against the line so it reads at every zoom.
+  markerCore: [237, 244, 252, 255] as RGBA,
+  markerEdge: [4, 7, 11, 235] as RGBA,
 } as const;
 
 /** Official-ish Sound Transit line colors, used once vehicles land. */
