@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { arrivalState, isOnTime, type StopArrival } from "./transit";
+import { arrivalState, framableByDirection, isOnTime, type StopArrival } from "./transit";
 
 // A live, fresh fix sitting right at the platform by default; tests vary one axis.
 const base: StopArrival = {
@@ -71,6 +71,35 @@ describe("arrivalState", () => {
     expect(
       arrivalState({ ...base, distanceFromStop: undefined, vehicleLon: undefined, minutesAway: 1 }),
     ).toEqual({ state: "due", minutes: 1 });
+  });
+});
+
+describe("framableByDirection", () => {
+  const at = (over: Partial<StopArrival>): StopArrival => ({ ...base, ...over });
+
+  it("keeps the soonest live train in each direction", () => {
+    const north1 = at({ tripId: "n1", headsign: "Northgate", arrival: 100, vehicleLon: -122.3 });
+    const north2 = at({ tripId: "n2", headsign: "Northgate", arrival: 300, vehicleLon: -122.2 });
+    const south1 = at({ tripId: "s1", headsign: "Angle Lake", arrival: 200, vehicleLon: -122.4 });
+    const picked = framableByDirection([north2, south1, north1]);
+    // One per headsign (the soonest of each), sorted soonest-first.
+    expect(picked.map((a) => a.tripId)).toEqual(["n1", "s1"]);
+  });
+
+  it("skips arrivals with no live position — they can't be framed", () => {
+    const live = at({ tripId: "live", headsign: "Northgate", vehicleLon: -122.3, arrival: 200 });
+    const ghost = at({
+      tripId: "ghost",
+      headsign: "Angle Lake",
+      arrival: 100,
+      vehicleLon: undefined,
+      vehicleLat: undefined,
+    });
+    expect(framableByDirection([ghost, live]).map((a) => a.tripId)).toEqual(["live"]);
+  });
+
+  it("returns nothing when no arrival has a live fix", () => {
+    expect(framableByDirection([at({ vehicleLon: undefined, vehicleLat: undefined })])).toEqual([]);
   });
 });
 
