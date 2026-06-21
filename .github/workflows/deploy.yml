@@ -45,7 +45,7 @@ jobs:
       VERCEL_SCOPE: ${{ vars.VERCEL_SCOPE }}
       APPS_DOMAIN: ${{ vars.APPS_DOMAIN || 'aubron.io' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # Without the token this workflow no-ops cleanly (keeps main green).
       - name: Check for token
         id: guard
