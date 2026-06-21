@@ -39,6 +39,8 @@ interface ObaStop {
   name: string;
   lat: number;
   lon: number;
+  /** Parent station id ("" for a parent/standalone stop); child platforms point up. */
+  parent?: string;
 }
 
 function key(): string {
@@ -102,6 +104,98 @@ function byShortName(a: RouteInfo, b: RouteInfo): number {
   return a.shortName.localeCompare(b.shortName);
 }
 
+const DEG = Math.PI / 180;
+
+// Only pull a merged station onto the line if it's already essentially on it —
+// don't yank a stop that genuinely sits off the drawn shape.
+const SNAP_LIMIT_METERS = 160;
+
+function stopMeters(a: { lon: number; lat: number }, b: { lon: number; lat: number }): number {
+  const dLat = (b.lat - a.lat) * 111_000;
+  const dLon = (b.lon - a.lon) * 111_000 * Math.cos(a.lat * DEG);
+  return Math.hypot(dLat, dLon);
+}
+
+/** Nearest point on any of the route's shapes — for seating a station on the line. */
+function nearestOnShapes(shapes: ShapeLine[], lon: number, lat: number): [number, number] | null {
+  const cosL = Math.cos(lat * DEG);
+  const px = lon * cosL;
+  const py = lat;
+  let best: [number, number] | null = null;
+  let bestD2 = Infinity;
+  for (const sh of shapes) {
+    for (let i = 1; i < sh.path.length; i++) {
+      const a = sh.path[i - 1]!;
+      const b = sh.path[i]!;
+      const ax = a[0] * cosL;
+      const ay = a[1];
+      const dx = b[0] * cosL - ax;
+      const dy = b[1] - ay;
+      const len2 = dx * dx + dy * dy;
+      let t = len2 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      const qx = ax + dx * t;
+      const qy = ay + dy * t;
+      const d2 = (px - qx) ** 2 + (py - qy) ** 2;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+      }
+    }
+  }
+  return best;
+}
+
+/** A stop straight from OBA, carrying the parent link we group on. */
+interface DedupeStop extends StopInfo {
+  parent?: string;
+}
+
+/**
+ * OBA models a station as a parent stop plus one child platform per direction, so
+ * a single Link station appears 3-4× under one name (the parent is even listed
+ * twice). Group by the GTFS `parent` id — exact, not a name/distance guess — and
+ * keep the parent as the canonical, clickable identity (snapped onto the line).
+ *
+ * The catch: the parent id itself returns no arrivals; only its child platforms
+ * do. So the canonical stop carries `stopIds` = the child platform ids, which the
+ * board queries together — surfacing every train that visits, both directions.
+ */
+export function dedupeStops(stops: DedupeStop[], shapes?: ShapeLine[]): StopInfo[] {
+  const groups = new Map<string, DedupeStop[]>();
+  for (const s of stops) {
+    const key = s.parent && s.parent.length > 0 ? s.parent : s.id;
+    const g = groups.get(key);
+    if (g) g.push(s);
+    else groups.set(key, [s]);
+  }
+
+  const out: StopInfo[] = [];
+  for (const [key, members] of groups) {
+    // Children (platforms) are the queryable ids; fall back to all members for a
+    // plain stop that has no separate platforms.
+    const childIds = [...new Set(members.filter((m) => m.id !== key).map((m) => m.id))];
+    const stopIds = childIds.length > 0 ? childIds : [...new Set(members.map((m) => m.id))];
+
+    const parent = members.find((m) => m.id === key);
+    const lon = parent ? parent.lon : members.reduce((a, m) => a + m.lon, 0) / members.length;
+    const lat = parent ? parent.lat : members.reduce((a, m) => a + m.lat, 0) / members.length;
+
+    let pos: [number, number] = [lon, lat];
+    if (shapes && shapes.length > 0) {
+      const snapped = nearestOnShapes(shapes, lon, lat);
+      if (
+        snapped &&
+        stopMeters({ lon, lat }, { lon: snapped[0], lat: snapped[1] }) <= SNAP_LIMIT_METERS
+      ) {
+        pos = snapped;
+      }
+    }
+    out.push({ id: key, name: (parent ?? members[0]!).name, lon: pos[0], lat: pos[1], stopIds });
+  }
+  return out;
+}
+
 /**
  * Decoded shapes + stops for one route. Shared by the network build (rail, drawn
  * by default) and the on-demand route loader (a bus line the rider drilled into).
@@ -121,13 +215,14 @@ async function loadRouteGeometry(
     const path = decodePolyline(pl.points);
     if (path.length > 1) shapes.push({ routeId, shortName, path });
   }
-  const stops = data.references.stops.map((s) => ({
+  const raw: DedupeStop[] = data.references.stops.map((s) => ({
     id: s.id,
     name: s.name,
     lon: s.lon,
     lat: s.lat,
+    parent: s.parent,
   }));
-  return { shapes, stops, shortName };
+  return { shapes, stops: dedupeStops(raw, shapes), shortName };
 }
 
 /** One route's geometry on demand — used when a rider drills into a bus line. */
@@ -163,6 +258,8 @@ export async function getNetwork(): Promise<NetworkData> {
     }),
   );
 
+  // Per-route stops are already deduped to canonical parent ids, so stations
+  // shared across lines collapse here by id into one overview dot.
   return { routes, shapes, stops: [...stopsById.values()], busRoutes };
 }
 
@@ -362,49 +459,75 @@ interface ObaStopWithArrivals {
   references: { stops: ObaStop[]; routes: ObaRoute[] };
 }
 
-/** The next arrivals at one stop — the data behind the station departure board. */
-export async function getStopBoard(stopId: string): Promise<StopBoard> {
-  const data = await obaGet<ObaStopWithArrivals>(
-    `arrivals-and-departures-for-stop/${encodeURIComponent(stopId)}`,
-    { minutesAfter: "60" },
-  );
-  const now = Date.now();
-  const stop = data.references.stops.find((s) => s.id === stopId);
-  const routes = new Map(data.references.routes.map((r) => [r.id, r]));
+function toStopArrival(a: ObaArrival, routes: Map<string, ObaRoute>, now: number): StopArrival {
+  const arrival =
+    a.predicted && a.predictedArrivalTime ? a.predictedArrivalTime : a.scheduledArrivalTime;
+  const pos = a.tripStatus?.position ?? a.tripStatus?.lastKnownLocation;
+  const route = routes.get(a.routeId);
+  const live = pos && !(pos.lat === 0 && pos.lon === 0);
+  return {
+    tripId: a.tripId,
+    routeId: a.routeId,
+    shortName: a.routeShortName ?? route?.shortName ?? a.routeId,
+    mode: route ? modeFromType(route.type) : "bus",
+    headsign: a.tripHeadsign ?? route?.longName ?? "",
+    arrival,
+    minutesAway: Math.round((arrival - now) / 60000),
+    deviation: a.tripStatus?.scheduleDeviation ?? 0,
+    predicted: a.predicted,
+    stopsAway: a.numberOfStopsAway ?? 99,
+    vehicleLon: live ? pos!.lon : undefined,
+    vehicleLat: live ? pos!.lat : undefined,
+  };
+}
 
-  const arrivals: StopArrival[] = (data.entry.arrivalsAndDepartures ?? [])
-    .map((a): StopArrival => {
-      const arrival =
-        a.predicted && a.predictedArrivalTime ? a.predictedArrivalTime : a.scheduledArrivalTime;
-      const pos = a.tripStatus?.position ?? a.tripStatus?.lastKnownLocation;
-      const route = routes.get(a.routeId);
-      const live = pos && !(pos.lat === 0 && pos.lon === 0);
-      return {
-        tripId: a.tripId,
-        routeId: a.routeId,
-        shortName: a.routeShortName ?? route?.shortName ?? a.routeId,
-        mode: route ? modeFromType(route.type) : "bus",
-        headsign: a.tripHeadsign ?? route?.longName ?? "",
-        arrival,
-        minutesAway: Math.round((arrival - now) / 60000),
-        deviation: a.tripStatus?.scheduleDeviation ?? 0,
-        predicted: a.predicted,
-        stopsAway: a.numberOfStopsAway ?? 99,
-        vehicleLon: live ? pos!.lon : undefined,
-        vehicleLat: live ? pos!.lat : undefined,
-      };
-    })
+/**
+ * The next arrivals behind a station's departure board. A deduped station passes
+ * its child platform ids (the parent returns nothing on its own), and we query
+ * them together and merge — so the board shows every train that visits, both
+ * directions and every line, not just one platform.
+ */
+export async function getStopBoard(stopId: string, memberIds?: string[]): Promise<StopBoard> {
+  const ids = memberIds && memberIds.length > 0 ? memberIds : [stopId];
+  const now = Date.now();
+
+  const results = await Promise.all(
+    ids.map((id) =>
+      obaGet<ObaStopWithArrivals>(`arrivals-and-departures-for-stop/${encodeURIComponent(id)}`, {
+        minutesAfter: "60",
+      }).catch(() => null),
+    ),
+  );
+
+  const seen = new Set<string>();
+  const merged: StopArrival[] = [];
+  let name = "";
+  let lon = 0;
+  let lat = 0;
+  results.forEach((data, i) => {
+    if (!data) return;
+    const routes = new Map(data.references.routes.map((r) => [r.id, r]));
+    const self = data.references.stops.find((s) => s.id === ids[i]);
+    if (self && !name) {
+      name = self.name;
+      lon = self.lon;
+      lat = self.lat;
+    }
+    for (const a of data.entry.arrivalsAndDepartures ?? []) {
+      const arr = toStopArrival(a, routes, now);
+      const dedupeKey = `${arr.tripId}-${arr.arrival}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+      merged.push(arr);
+    }
+  });
+
+  const arrivals = merged
     .filter((a) => a.minutesAway >= -2)
     .sort((a, b) => a.arrival - b.arrival)
-    .slice(0, 8);
+    .slice(0, 12);
 
-  return {
-    stopId,
-    name: stop?.name ?? stopId,
-    lon: stop?.lon ?? 0,
-    lat: stop?.lat ?? 0,
-    arrivals,
-  };
+  return { stopId, name: name || stopId, lon, lat, arrivals };
 }
 
 interface ObaTripDetails {

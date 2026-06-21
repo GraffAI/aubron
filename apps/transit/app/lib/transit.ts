@@ -22,6 +22,13 @@ export interface StopInfo {
   name: string;
   lon: number;
   lat: number;
+  /**
+   * The underlying queryable platform stop ids this station was deduped from
+   * (OBA's parent station returns no arrivals; its child platforms do). The board
+   * queries all of them so it shows every train that visits, both directions.
+   * Absent/[id] for a plain stop.
+   */
+  stopIds?: string[];
 }
 
 /** Mostly-static network geometry: what the lines and stops are + where. */
