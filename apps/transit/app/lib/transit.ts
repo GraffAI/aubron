@@ -29,6 +29,25 @@ export interface NetworkData {
   routes: RouteInfo[];
   shapes: ShapeLine[];
   stops: StopInfo[];
+  /** Catalog of Sound Transit Express bus routes — selectable, geometry on demand. */
+  busRoutes: RouteInfo[];
+}
+
+/** A single route's geometry, fetched on demand when a bus line is drilled into. */
+export interface RouteGeometry {
+  routeId: string;
+  shortName: string;
+  shapes: ShapeLine[];
+  stops: StopInfo[];
+}
+
+/** A line the rider has drilled into: its geometry, drawn prominently + isolated. */
+export interface SelectedLine {
+  routeId: string;
+  shortName: string;
+  mode: Mode;
+  shapes: ShapeLine[];
+  stops: StopInfo[];
 }
 
 /** A live vehicle position from the realtime feed. */
@@ -82,6 +101,48 @@ export interface TripDetail {
   tripId: string;
   deviation: number;
   stops: TripStop[];
+}
+
+/** One upcoming arrival at a selected stop, for the station signage. */
+export interface StopArrival {
+  tripId: string;
+  routeId: string;
+  shortName: string;
+  mode: Mode;
+  headsign: string;
+  /** Predicted arrival epoch ms (falls back to scheduled when not predicted). */
+  arrival: number;
+  /** Whole minutes until arrival (can be negative if due/passed). */
+  minutesAway: number;
+  /** Schedule deviation in seconds: + = late, − = early. */
+  deviation: number;
+  predicted: boolean;
+  /** How many stops away the vehicle is right now (0 = at this stop). */
+  stopsAway: number;
+  /** Live vehicle position, when reported — lets the map frame it with the stop. */
+  vehicleLon?: number;
+  vehicleLat?: number;
+}
+
+/** A selected stop's live board: name, position, and the next arrivals. */
+export interface StopBoard {
+  stopId: string;
+  name: string;
+  lon: number;
+  lat: number;
+  arrivals: StopArrival[];
+}
+
+/** Signage status for an arrival, in the spirit of a departure board. */
+export type ArrivalState = "arrived" | "arriving" | "due" | "soon" | "scheduled";
+
+/** Coarse status word + how many minutes to show (null when it's a word, not a count). */
+export function arrivalState(a: StopArrival): { state: ArrivalState; minutes: number | null } {
+  if (a.stopsAway <= 0 && a.minutesAway <= 0) return { state: "arrived", minutes: null };
+  if (a.minutesAway <= 0) return { state: "arriving", minutes: null };
+  if (a.minutesAway === 1) return { state: "due", minutes: 1 };
+  if (!a.predicted) return { state: "scheduled", minutes: a.minutesAway };
+  return { state: "soon", minutes: a.minutesAway };
 }
 
 /** UI filter state: which rail lines show, whether buses show, on-time-only. */
