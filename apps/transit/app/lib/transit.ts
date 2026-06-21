@@ -124,8 +124,16 @@ export interface StopArrival {
   /** Schedule deviation in seconds: + = late, − = early. */
   deviation: number;
   predicted: boolean;
-  /** How many stops away the vehicle is right now (0 = at this stop). */
+  /** How many stops away the vehicle is right now (0 = this is its next stop, − = passed). */
   stopsAway: number;
+  /**
+   * GPS-derived meters from the vehicle to this stop along the route: + = still to
+   * come, ≈0 = at the platform, − = already passed. The authoritative "is it
+   * physically here" signal — absent when there's no live fix.
+   */
+  distanceFromStop?: number;
+  /** Seconds since the last GPS fix; lets us distrust a stale position. */
+  gpsAgeSec?: number;
   /** Live vehicle position, when reported — lets the map frame it with the stop. */
   vehicleLon?: number;
   vehicleLat?: number;
@@ -143,9 +151,35 @@ export interface StopBoard {
 /** Signage status for an arrival, in the spirit of a departure board. */
 export type ArrivalState = "arrived" | "arriving" | "due" | "soon" | "scheduled";
 
-/** Coarse status word + how many minutes to show (null when it's a word, not a count). */
+// Within this many meters of the stop (with a live fix) the train is at the
+// platform → "Arrived". Out to APPROACH it's visibly pulling in → "Arriving".
+const ARRIVE_M = 150;
+const APPROACH_M = 700;
+// A fix older than this is no longer trustworthy enough to declare arrival on.
+const STALE_GPS_SEC = 120;
+
+/**
+ * The board status, gated on authoritative GPS, not the clock. "Arrived" requires
+ * the live fix to actually be at the platform (this is the train's next stop and
+ * it's within ARRIVE_M with a fresh fix) — a lapsed prediction or a stale ping far
+ * from the stop stays "Arriving"/a countdown instead of falsely flipping to
+ * "Arrived". Without a usable fix we lean on the schedule and never claim arrival.
+ */
 export function arrivalState(a: StopArrival): { state: ArrivalState; minutes: number | null } {
-  if (a.stopsAway <= 0 && a.minutesAway <= 0) return { state: "arrived", minutes: null };
+  const liveFix =
+    a.predicted &&
+    a.distanceFromStop != null &&
+    a.vehicleLon != null &&
+    (a.gpsAgeSec == null || a.gpsAgeSec <= STALE_GPS_SEC);
+
+  if (liveFix && a.stopsAway === 0) {
+    const d = a.distanceFromStop!;
+    if (d <= ARRIVE_M) return { state: "arrived", minutes: null };
+    if (d <= APPROACH_M) return { state: "arriving", minutes: null };
+  }
+
+  // GPS says it's not at the platform (or we can't trust GPS): show the clock,
+  // capping a due-but-unconfirmed train at "Arriving" rather than "Arrived".
   if (a.minutesAway <= 0) return { state: "arriving", minutes: null };
   if (a.minutesAway === 1) return { state: "due", minutes: 1 };
   if (!a.predicted) return { state: "scheduled", minutes: a.minutesAway };

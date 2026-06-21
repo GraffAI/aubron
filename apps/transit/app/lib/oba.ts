@@ -447,10 +447,13 @@ interface ObaArrival {
   predictedArrivalTime: number;
   predicted: boolean;
   numberOfStopsAway?: number;
+  /** Meters from the vehicle to this stop along the route (− once it's passed). */
+  distanceFromStop?: number;
   tripStatus?: {
     position?: { lat: number; lon: number };
     lastKnownLocation?: { lat: number; lon: number };
     scheduleDeviation?: number;
+    lastLocationUpdateTime?: number;
   };
 }
 
@@ -465,6 +468,7 @@ function toStopArrival(a: ObaArrival, routes: Map<string, ObaRoute>, now: number
   const pos = a.tripStatus?.position ?? a.tripStatus?.lastKnownLocation;
   const route = routes.get(a.routeId);
   const live = pos && !(pos.lat === 0 && pos.lon === 0);
+  const updated = a.tripStatus?.lastLocationUpdateTime;
   return {
     tripId: a.tripId,
     routeId: a.routeId,
@@ -476,6 +480,8 @@ function toStopArrival(a: ObaArrival, routes: Map<string, ObaRoute>, now: number
     deviation: a.tripStatus?.scheduleDeviation ?? 0,
     predicted: a.predicted,
     stopsAway: a.numberOfStopsAway ?? 99,
+    distanceFromStop: typeof a.distanceFromStop === "number" ? a.distanceFromStop : undefined,
+    gpsAgeSec: live && updated ? Math.max(0, Math.round((now - updated) / 1000)) : undefined,
     vehicleLon: live ? pos!.lon : undefined,
     vehicleLat: live ? pos!.lat : undefined,
   };
@@ -522,8 +528,13 @@ export async function getStopBoard(stopId: string, memberIds?: string[]): Promis
     }
   });
 
+  // Drop trains that have left this stop: GPS-confirmed past it (a stop behind and
+  // physically beyond), or — lacking a live fix — a prediction that's well lapsed.
+  const departed = (a: StopArrival): boolean =>
+    a.distanceFromStop != null ? a.stopsAway < 0 && a.distanceFromStop < 0 : a.minutesAway < -1;
+
   const arrivals = merged
-    .filter((a) => a.minutesAway >= -2)
+    .filter((a) => !departed(a))
     .sort((a, b) => a.arrival - b.arrival)
     .slice(0, 12);
 
