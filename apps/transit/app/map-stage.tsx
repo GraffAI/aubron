@@ -156,9 +156,12 @@ export function MapStage() {
     let active = true;
     setBoard(null);
     setBoardLoading(true);
+    const ids = stop.stopIds?.length
+      ? `?ids=${stop.stopIds.map(encodeURIComponent).join(",")}`
+      : "";
     const load = async () => {
       try {
-        const r = await fetch(`/api/stop/${encodeURIComponent(stop.id)}`);
+        const r = await fetch(`/api/stop/${encodeURIComponent(stop.id)}${ids}`);
         const j = (await r.json()) as StopBoard;
         if (active && Array.isArray(j.arrivals)) setBoard(j);
       } catch {
