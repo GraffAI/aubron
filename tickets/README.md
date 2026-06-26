@@ -28,16 +28,18 @@ raw requests; only the Anthropic `WebFetch` tool gets through to some of them.
 On a qualifying listing it POSTs to the IFTTT webhook with:
 `value1` = match, `value2` = price/section detail, `value3` = buy link.
 
-## Status as of last manual check (2026-06-21)
+## Status as of last manual check (2026-06-26, match-eve)
 
-The open resale market was ~2× the targets — **nothing qualified**, so no
-webhook was fired:
+**Bosnia–Qatar (Jun 24) is over** — disabled in the watcher. Only Egypt–Iran
+(Jun 26, 8pm PT kickoff) is still live. The open resale market is still ~2× the
+targets even on match-eve (high-demand primetime match) — **nothing qualified**,
+no webhook fired:
 
 | Match             | Cheapest live (all-in) | Target |
 | ----------------- | ---------------------- | ------ |
-| Egypt–Iran, upper | $551                   | ≤ $250 |
-| Egypt–Iran, lower | $629                   | ≤ $300 |
-| Bosnia–Qatar, any | $365                   | ≤ $150 |
+| Egypt–Iran, upper | $548                   | ≤ $250 |
+| Egypt–Iran, lower | $651                   | ≤ $300 |
+| Bosnia–Qatar      | n/a (match over)       | —      |
 
 FIFA face values (worldcuppass guide): Cat 1 ~$410, Cat 2 ~$310, **Cat 3 ~$140**,
 Cat 4 ~$60–70. Target prices are realistic only on **FIFA's official resale

@@ -54,9 +54,10 @@ MATCHES = [
     },
     {
         "key": "bosnia_qatar",
-        "name": "Bosnia vs Qatar (Jun 24, Lumen Field)",
+        "name": "Bosnia vs Qatar (Jun 24, Lumen Field) [MATCH OVER - disabled]",
         "event_id": "66b11b3c880867d8fb9eed88",
         "buy_url": "https://gametime.co/bosherz_qatar/qatar-vs-bosnia-and-herzegovina-fifa-world-cup-match-52-group-b-tickets/6-24-2026-seattle-wa-lumen-field/events/66b11b3c880867d8fb9eed88",
+        "disabled": True,  # match kicked off Jun 24; nothing to watch
         "rules": [
             ("any seat", UPPER_GROUPS | LOWER_GROUPS, 150.0),
         ],
@@ -115,6 +116,8 @@ def main() -> int:
     any_alert = False
 
     for match in MATCHES:
+        if match.get("disabled"):
+            continue
         try:
             listings = fetch_listings(match["event_id"])
         except RuntimeError as exc:
