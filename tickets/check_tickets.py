@@ -52,31 +52,19 @@ def tier_of(group: str | None) -> str | None:
         return "lower"
     return None
 
-# Egypt's Round-of-32 match depends on their Group G finish (decided Jun 27):
-#   1st -> Match 82, Jul 1, Lumen Field Seattle (local)
-#   2nd -> Match 88, Jul 3, AT&T Stadium Arlington
-# We watch both until the group result is final, then prune the irrelevant one.
-# Thresholds carried over from the group-stage targets (upper<=$250, lower<=$300).
+# Egypt finished 1st in Group G (Jun 26) -> R32 is CONFIRMED:
+#   Match 82, Jul 1, Lumen Field Seattle (vs a 3rd-place team).
+# User criteria: Egypt only, any seat up to $999 all-in.
+# (Match 88 / Jul 3 Arlington was the "if Egypt 2nd" scenario -> moot.)
 MATCHES = [
     {
-        "key": "egypt_r32_1st_seattle",
-        "name": "Egypt R32 if 1st: Match 82 (Jul 1, Lumen Field Seattle)",
+        "key": "egypt_r32_seattle",
+        "name": "Egypt R32: Match 82 (Jul 1, Lumen Field Seattle)",
         "event_id": "66ac2cc859eb64be1a22d640",
         "buy_url": "https://gametime.co/fifa/fifa-world-cup-match-82-round-of-32-tickets/7-1-2026-seattle-wa-lumen-field/events/66ac2cc859eb64be1a22d640",
-        # (label, predicate over section_group, threshold USD)
+        # (label, tier 'upper'|'lower'|'any', threshold USD)
         "rules": [
-            ("upper bowl (~Cat 3)", "upper", 250.0),
-            ("lower bowl (~Cat 2)", "lower", 300.0),
-        ],
-    },
-    {
-        "key": "egypt_r32_2nd_arlington",
-        "name": "Egypt R32 if 2nd: Match 88 (Jul 3, AT&T Stadium Arlington)",
-        "event_id": "66b1208626b2aeaba0dbc094",
-        "buy_url": "https://gametime.co/soccer/fifa-world-cup-match-88-round-of-32-tickets/7-3-2026-arlington-tx-at-t-stadium/events/66b1208626b2aeaba0dbc094",
-        "rules": [
-            ("upper bowl (~Cat 3)", "upper", 250.0),
-            ("lower bowl (~Cat 2)", "lower", 300.0),
+            ("any seat", "any", 999.0),
         ],
     },
 ]
@@ -100,7 +88,8 @@ def fetch_listings(event_id: str, retries: int = 3) -> list[dict]:
 def cheapest(listings: list[dict], tier: str) -> dict | None:
     best = None
     for lst in listings:
-        if tier_of(lst.get("section_group")) != tier:
+        t = tier_of(lst.get("section_group"))
+        if t is None or (tier != "any" and t != tier):
             continue
         total = lst.get("price", {}).get("total")
         if not isinstance(total, (int, float)):
