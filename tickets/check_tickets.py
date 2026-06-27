@@ -33,6 +33,9 @@ UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
 
 STATE_FILE = Path(__file__).with_name("state.json")
 
+# Don't re-fire the webhook for trivial price wiggles; require a real drop.
+MIN_REALERT_DROP = 40.0
+
 # Gametime section_group labels vary by event (e.g. "Upper Sideline",
 # "Upper Level Corner", or bare "Upper"; "Lower End Zone" or "Lower Level End
 # Zone"). Classify by PREFIX so new label variants can't be silently missed.
@@ -145,7 +148,8 @@ def main() -> int:
             if price <= threshold:
                 skey = f"{match['key']}::{label}"
                 prev = state.get(skey, {}).get("price")
-                if prev is None or price < prev:  # new, or a strictly better deal
+                # Re-alert only on a MEANINGFUL drop, not $1-3 noise.
+                if prev is None or price <= prev - MIN_REALERT_DROP:
                     any_alert = True
                     v1 = match["name"]
                     v2 = f"{label}: ${price:.2f} all-in, sec {sec} [{grp}] row {row} (target <= ${threshold:.0f})"
