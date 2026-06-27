@@ -1,0 +1,53 @@
+{
+  "name": "@aubron/world-cup-scoreboard",
+  "version": "0.0.0",
+  "description": "Drive a 32x30 WLED LED matrix as a live FIFA World Cup scoreboard — flags, scores, and a GOAL celebration, streamed over DDP.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GraffAI/aubron.git",
+    "directory": "packages/world-cup-scoreboard"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@aubron/eslint-config": "workspace:*",
+    "@aubron/prettier-config": "workspace:*",
+    "@aubron/tsconfig": "workspace:*",
+    "@aubron/tsup-config": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/pngjs": "^6.0.5",
+    "eslint": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "worldcup": "./dist/index.js"
+  }
+}
