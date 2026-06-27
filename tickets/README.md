@@ -1,16 +1,23 @@
 # FIFA World Cup 2026 ticket watch
 
-Standing task: alert (via IFTTT webhook) when resale tickets for two Seattle
-(Lumen Field) group-stage matches drop to target prices.
+Standing task: alert (via IFTTT webhook) when resale tickets for the watched
+matches drop to target prices. Now tracking **Egypt's Round-of-32 match** (the
+group-stage watches below are over).
 
 ## Targets
 
-| Match                                   | Date         | Target (all-in price)                                          |
-| --------------------------------------- | ------------ | -------------------------------------------------------------- |
-| **Egypt vs Iran** (Match 63, Group G)   | Jun 26, 2026 | upper bowl (~Cat 3) **≤ $250**, lower bowl (~Cat 2) **≤ $300** |
-| **Bosnia vs Qatar** (Match 52, Group B) | Jun 24, 2026 | any seat **≤ $150**                                            |
+Egypt's R32 opponent/slot depends on their Group G finish (settled Jun 27):
 
+| Match                           | Date / Venue                    | Target (all-in price)                                          |
+| ------------------------------- | ------------------------------- | -------------------------------------------------------------- |
+| **R32 if Egypt 1st** (Match 82) | Jul 1 · Lumen Field, Seattle    | upper bowl (~Cat 3) **≤ $250**, lower bowl (~Cat 2) **≤ $300** |
+| **R32 if Egypt 2nd** (Match 88) | Jul 3 · AT&T Stadium, Arlington | upper bowl (~Cat 3) **≤ $250**, lower bowl (~Cat 2) **≤ $300** |
+
+Both are watched until the group result is final; then prune the irrelevant one.
 "All-in" = the total the buyer pays incl. fees (Gametime `price.total`).
+
+_Group stage (done): Egypt vs Iran (Jun 26) and Bosnia vs Qatar (Jun 24) — both
+played; never dropped to target on the open market._
 
 ## How to check (run on every reboot)
 
@@ -28,24 +35,21 @@ raw requests; only the Anthropic `WebFetch` tool gets through to some of them.
 On a qualifying listing it POSTs to the IFTTT webhook with:
 `value1` = match, `value2` = price/section detail, `value3` = buy link.
 
-## Status as of last manual check (2026-06-26, match-eve)
+## Status as of last manual check (2026-06-27, group stage just ended)
 
-**Bosnia–Qatar (Jun 24) is over** — disabled in the watcher. Only Egypt–Iran
-(Jun 26, 8pm PT kickoff) is still live. The open resale market is still ~2× the
-targets even on match-eve (high-demand primetime match) — **nothing qualified**,
-no webhook fired:
+Egypt advanced from Group G; exact R32 slot pends the final standings. Knockout
+resale is **much** pricier than the group stage — nothing near target, no
+webhook fired:
 
-| Match             | Cheapest live (all-in) | Target |
-| ----------------- | ---------------------- | ------ |
-| Egypt–Iran, upper | $548                   | ≤ $250 |
-| Egypt–Iran, lower | $651                   | ≤ $300 |
-| Bosnia–Qatar      | n/a (match over)       | —      |
+| R32 scenario                | Cheapest upper (~Cat3) | Cheapest lower (~Cat2) |
+| --------------------------- | ---------------------- | ---------------------- |
+| Egypt 1st — Jul 1 Seattle   | $655                   | $747                   |
+| Egypt 2nd — Jul 3 Arlington | $732                   | $1,051                 |
 
-FIFA face values (worldcuppass guide): Cat 1 ~$410, Cat 2 ~$310, **Cat 3 ~$140**,
-Cat 4 ~$60–70. Target prices are realistic only on **FIFA's official resale
-marketplace at face value** (`FIFA.com/tickets`, login required) — not on the
-open secondary market for these high-/normal-demand matches this close to
-kickoff. The watcher catches a secondary-market drop if one happens.
+Targets ($250/$300) are ~2.6–4× the current market. As in the group stage, they
+are realistic only via **FIFA's official face-value resale** (`FIFA.com/tickets`,
+login-gated) or a steep late drop. The watcher catches a secondary-market drop
+if one happens.
 
 ## Notes / caveats
 

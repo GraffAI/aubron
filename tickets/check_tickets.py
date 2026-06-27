@@ -33,33 +33,50 @@ UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
 
 STATE_FILE = Path(__file__).with_name("state.json")
 
-# Section groups Gametime returns. "Upper*" ~ FIFA Cat 3/4, lower/middle ~ Cat 1/2.
-# The literal "Category N"/"VIP" groups are hospitality/lot anomalies -> excluded.
-UPPER_GROUPS = {"Upper Sideline", "Upper Corner", "Upper End Zone",
-                "Upper Level End Zone", "Upper Level Sideline"}
-LOWER_GROUPS = {"Lower Sideline", "Lower Corner", "Lower End Zone", "Middle Sideline"}
+# Gametime section_group labels vary by event (e.g. "Upper Sideline",
+# "Upper Level Corner", or bare "Upper"; "Lower End Zone" or "Lower Level End
+# Zone"). Classify by PREFIX so new label variants can't be silently missed.
+# "Upper*" ~ FIFA Cat 3/4; "Lower*"/"Middle*" ~ Cat 1/2. The literal
+# "Category N"/"VIP" groups are hospitality/lot anomalies -> excluded.
 EXCLUDE_GROUPS = {"Category 1", "Category 2", "Category 3", "Category 4", "VIP"}
 
+
+def tier_of(group: str | None) -> str | None:
+    """Map a Gametime section_group to 'upper' or 'lower' (or None to skip)."""
+    if not group or group in EXCLUDE_GROUPS:
+        return None
+    g = group.lower()
+    if g.startswith("upper"):
+        return "upper"
+    if g.startswith("lower") or g.startswith("middle"):
+        return "lower"
+    return None
+
+# Egypt's Round-of-32 match depends on their Group G finish (decided Jun 27):
+#   1st -> Match 82, Jul 1, Lumen Field Seattle (local)
+#   2nd -> Match 88, Jul 3, AT&T Stadium Arlington
+# We watch both until the group result is final, then prune the irrelevant one.
+# Thresholds carried over from the group-stage targets (upper<=$250, lower<=$300).
 MATCHES = [
     {
-        "key": "egypt_iran",
-        "name": "Egypt vs Iran (Jun 26, Lumen Field)",
-        "event_id": "66ac1e369db6322680589c74",
-        "buy_url": "https://gametime.co/egypt_iran/fifa-world-cup-egypt-vs-iran-match-63-group-g-tickets/6-26-2026-seattle-wa-lumen-field/events/66ac1e369db6322680589c74",
+        "key": "egypt_r32_1st_seattle",
+        "name": "Egypt R32 if 1st: Match 82 (Jul 1, Lumen Field Seattle)",
+        "event_id": "66ac2cc859eb64be1a22d640",
+        "buy_url": "https://gametime.co/fifa/fifa-world-cup-match-82-round-of-32-tickets/7-1-2026-seattle-wa-lumen-field/events/66ac2cc859eb64be1a22d640",
         # (label, predicate over section_group, threshold USD)
         "rules": [
-            ("upper bowl (~Cat 3)", UPPER_GROUPS, 250.0),
-            ("lower bowl (~Cat 2)", LOWER_GROUPS, 300.0),
+            ("upper bowl (~Cat 3)", "upper", 250.0),
+            ("lower bowl (~Cat 2)", "lower", 300.0),
         ],
     },
     {
-        "key": "bosnia_qatar",
-        "name": "Bosnia vs Qatar (Jun 24, Lumen Field) [MATCH OVER - disabled]",
-        "event_id": "66b11b3c880867d8fb9eed88",
-        "buy_url": "https://gametime.co/bosherz_qatar/qatar-vs-bosnia-and-herzegovina-fifa-world-cup-match-52-group-b-tickets/6-24-2026-seattle-wa-lumen-field/events/66b11b3c880867d8fb9eed88",
-        "disabled": True,  # match kicked off Jun 24; nothing to watch
+        "key": "egypt_r32_2nd_arlington",
+        "name": "Egypt R32 if 2nd: Match 88 (Jul 3, AT&T Stadium Arlington)",
+        "event_id": "66b1208626b2aeaba0dbc094",
+        "buy_url": "https://gametime.co/soccer/fifa-world-cup-match-88-round-of-32-tickets/7-3-2026-arlington-tx-at-t-stadium/events/66b1208626b2aeaba0dbc094",
         "rules": [
-            ("any seat", UPPER_GROUPS | LOWER_GROUPS, 150.0),
+            ("upper bowl (~Cat 3)", "upper", 250.0),
+            ("lower bowl (~Cat 2)", "lower", 300.0),
         ],
     },
 ]
@@ -80,11 +97,10 @@ def fetch_listings(event_id: str, retries: int = 3) -> list[dict]:
     raise RuntimeError(f"Gametime fetch failed for {event_id}: {last}")
 
 
-def cheapest(listings: list[dict], groups: set[str]) -> dict | None:
+def cheapest(listings: list[dict], tier: str) -> dict | None:
     best = None
     for lst in listings:
-        grp = lst.get("section_group")
-        if grp in EXCLUDE_GROUPS or grp not in groups:
+        if tier_of(lst.get("section_group")) != tier:
             continue
         total = lst.get("price", {}).get("total")
         if not isinstance(total, (int, float)):
