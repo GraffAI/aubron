@@ -11,17 +11,14 @@
  */
 import type { Canvas, RGB } from "../canvas.js";
 import { hex } from "../canvas.js";
-import { renderFlag } from "../flags/draw.js";
-import { flagFor } from "../flags/registry.js";
+import { flagSprite } from "../flags/sprites.js";
 import { bigDigits, drawText, measure, small } from "../font.js";
 import type { Match, SideScore } from "../model.js";
 
-const BG: RGB = hex("#080B14");
-const STRIP: RGB = hex("#0E1422");
+const BG: RGB = [0, 0, 0];
 const INK: RGB = hex("#FFFFFF");
 const DIM: RGB = hex("#9AA7BD");
 const GOLD: RGB = hex("#FFD24A");
-const LIVE: RGB = hex("#FF3B30");
 
 interface Layout {
   rowH: number;
@@ -37,10 +34,9 @@ function layout(h: number): Layout {
   return { rowH, stripH, homeY: 0, stripY: rowH, awayY: rowH + stripH };
 }
 
-/** Draw a flag with a 1px dark frame so light flags don't bleed into the bg. */
+/** Draw a flag. Against the black background each flag's own pixels are its edges. */
 function drawFlag(canvas: Canvas, code: string, x: number, y: number, w: number, hh: number): void {
-  canvas.fillRect(x - 1, y - 1, w + 2, hh + 2, hex("#1B2233"));
-  canvas.draw(renderFlag(flagFor(code), w, hh), x, y);
+  canvas.draw(flagSprite(code, w, hh), x, y);
 }
 
 function drawScore(canvas: Canvas, value: number, rightX: number, y: number, color: RGB): void {
@@ -56,27 +52,24 @@ function drawTeamRow(
   rowH: number,
   win: boolean,
 ): void {
-  // Three columns across the 32px width: flag | code | score, no overlap.
-  //   flag  x 1..13   code x 15..25   score x 26..31 (right-aligned)
-  const flagH = Math.min(rowH - 2, 11);
-  const flagW = 13;
+  // A tall 18×12 flag fills the row and carries the team identity (no code),
+  // with the big score right-aligned to the panel edge. Both flags sit snug to
+  // the status strip, leaving the bottom row free for the rotation pager.
+  const flagH = 12;
+  const flagW = 18;
   const flagY = rowY + Math.floor((rowH - flagH) / 2);
-  drawFlag(canvas, side.team.code, 1, flagY, flagW, flagH);
+  drawFlag(canvas, side.team.code, 0, flagY, flagW, flagH);
 
-  const codeY = rowY + Math.floor((rowH - 5) / 2);
-  drawText(canvas, small, side.team.code, 15, codeY, win ? GOLD : INK);
-
-  // Big right-aligned score, gold for the winner at full time.
   const scoreY = rowY + Math.floor((rowH - bigDigits.height) / 2);
-  drawScore(canvas, side.score, canvas.width - 1, scoreY, win ? GOLD : INK);
+  drawScore(canvas, side.score, canvas.width, scoreY, win ? GOLD : INK);
 }
 
 function statusLabel(match: Match): string {
   switch (match.status) {
     case "halftime":
-      return "HT";
+      return "HALF"; // "HALF TIME" won't fit 30px on one line; the single word does
     case "finished":
-      return "FT";
+      return "FULL";
     case "live":
       return match.minute != null ? `${match.minute}'` : "LIVE";
     default:
@@ -84,8 +77,12 @@ function statusLabel(match: Match): string {
   }
 }
 
-/** Render the scoreboard. `t` (seconds) drives the blinking live dot. */
-export function drawScoreboard(canvas: Canvas, match: Match, t = 0): void {
+/**
+ * Render the scoreboard. `clock` overrides the status-strip label — the engine
+ * passes a ticking "68:24" (or "45+2" in stoppage) for live matches; otherwise
+ * the HT / FT / minute label is derived from the match.
+ */
+export function drawScoreboard(canvas: Canvas, match: Match, clock?: string): void {
   canvas.clear(BG);
   const lo = layout(canvas.height);
 
@@ -96,30 +93,17 @@ export function drawScoreboard(canvas: Canvas, match: Match, t = 0): void {
   drawTeamRow(canvas, match.home, lo.homeY, lo.rowH, homeWon);
   drawTeamRow(canvas, match.away, lo.awayY, lo.rowH, awayWon);
 
-  // Status strip.
-  canvas.fillRect(0, lo.stripY, canvas.width, lo.stripH, STRIP);
-  const accent: RGB = match.status === "finished" ? DIM : hex("#FFB020");
-  canvas.hLine(0, lo.stripY, canvas.width, accent, 0.5);
-  canvas.hLine(0, lo.stripY + lo.stripH - 1, canvas.width, accent, 0.5);
+  // Status strip: two crisp divider lines bracket the clock/label. No dim fill —
+  // the gap between them stays truly off rather than glowing.
+  const accent: RGB = finished ? DIM : hex("#FFB020");
+  canvas.hLine(0, lo.stripY, canvas.width, accent);
+  canvas.hLine(0, lo.stripY + lo.stripH - 1, canvas.width, accent);
 
-  const label = statusLabel(match);
-  const labelW = measure(small, label);
-  const live = match.status === "live";
-  // Center the label (plus a blinking dot when live) within the strip.
-  const dotW = live ? 4 : 0;
-  const totalW = labelW + dotW;
-  const startX = Math.round((canvas.width - totalW) / 2);
+  // FT/HT/clock label. Finished uses gold (strong against the dim FT borders);
+  // live/HT stay white.
+  const label = clock ?? statusLabel(match);
   const textY = lo.stripY + Math.floor((lo.stripH - 5) / 2);
-  const end = drawText(
-    canvas,
-    small,
-    label,
-    startX,
-    textY,
-    match.status === "finished" ? DIM : INK,
-  );
-  if (live) {
-    const on = Math.floor(t * 2) % 2 === 0;
-    canvas.fillCircle(end + 2, textY + 2, 1.4, on ? LIVE : hex("#5A1410"));
-  }
+  drawText(canvas, small, label, Math.round(canvas.width / 2), textY, finished ? GOLD : INK, {
+    center: true,
+  });
 }

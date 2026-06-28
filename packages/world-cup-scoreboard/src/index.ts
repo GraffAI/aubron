@@ -3,7 +3,9 @@
  *
  *   worldcup run        --wled <ip> [--key <api-key>] [--provider …]
  *   worldcup demo       --wled <ip> [--speed 6]            # scripted fake match
+ *   worldcup showcase   --wled <ip>                        # loop every interface
  *   worldcup preview    [--out ./preview]                  # PNGs, no hardware
+ *   worldcup flags      [--out ./preview]                  # flag contact sheets
  *   worldcup calibrate  --wled <ip> [--pattern axes|border|fill|walk]
  *   worldcup once       [--key <api-key>] [--provider …]   # print current data
  *
@@ -18,6 +20,8 @@ import { Canvas } from "./canvas.js";
 import { resolveConfig, type ConfigFlags } from "./config.js";
 import { DdpSender } from "./ddp.js";
 import { Engine } from "./engine.js";
+import { flagSprite, SPRITE_CODES } from "./flags/sprites.js";
+import { drawText, small } from "./font.js";
 import { buildPixelOrder, serializeFrame } from "./matrix.js";
 import { toPng, tile } from "./preview.js";
 import { createProvider, mockProvider } from "./providers/index.js";
@@ -41,6 +45,7 @@ const OPTIONS = {
   flipX: { type: "boolean" },
   flipY: { type: "boolean" },
   brightness: { type: "string" },
+  gamma: { type: "string" },
   fps: { type: "string" },
   provider: { type: "string" },
   key: { type: "string" },
@@ -48,6 +53,7 @@ const OPTIONS = {
   season: { type: "string" },
   competition: { type: "string" },
   poll: { type: "string" },
+  rotate: { type: "string" },
   idle: { type: "string" },
   out: { type: "string" },
   pattern: { type: "string" },
@@ -68,8 +74,12 @@ export async function main(argv: string[]): Promise<void> {
       return cmdRun(flags);
     case "demo":
       return cmdDemo(flags);
+    case "showcase":
+      return cmdShowcase(flags);
     case "preview":
       return cmdPreview(flags);
+    case "flags":
+      return cmdFlags(flags);
     case "calibrate":
       return cmdCalibrate(flags);
     case "once":
@@ -100,6 +110,122 @@ async function cmdDemo(flags: ConfigFlags & { speed?: string }): Promise<void> {
   const engine = new Engine({ ...cfg, pollLive: 1, pollIdle: 2 }, provider, { log });
   await engine.start();
   await untilInterrupt(() => engine.stop());
+}
+
+/**
+ * Loop a curated reel of every interface to the panel — scoreboards, a kickoff
+ * card, GOAL celebrations (24×16 hero flag) and the schedule ticker (12×8 flags)
+ * — for judging the look (and flag resolution) on the real hardware. No data
+ * source: it cycles scripted, recognisable fixtures.
+ */
+async function cmdShowcase(flags: ConfigFlags): Promise<void> {
+  const cfg = resolveConfig(flags);
+  if (!cfg.wledHost) throw new Error("showcase needs a WLED host — pass --wled <ip>");
+  const order = buildPixelOrder(cfg.matrix);
+  const sender = new DdpSender({ host: cfg.wledHost, port: cfg.wledPort });
+  const canvas = new Canvas(cfg.matrix.width, cfg.matrix.height);
+  const side = (code: string, name: string, score: number) => ({
+    team: resolveTeam({ code, name }),
+    score,
+  });
+  const soon = (min: number): string => new Date(Date.now() + min * 60000).toISOString();
+
+  const colpor: Match = {
+    id: "COLPOR",
+    status: "live",
+    minute: 67,
+    stage: "GROUP F",
+    home: side("COL", "Colombia", 1),
+    away: side("POR", "Portugal", 0),
+  };
+  const braarg: Match = {
+    id: "BRAARG",
+    status: "live",
+    minute: 81,
+    stage: "FINAL",
+    home: side("BRA", "Brazil", 2),
+    away: side("ARG", "Argentina", 2),
+  };
+  const kickoff: Match = {
+    id: "GERPAR",
+    status: "scheduled",
+    stage: "R32",
+    kickoff: soon(23),
+    home: side("GER", "Germany", 0),
+    away: side("PAR", "Paraguay", 0),
+  };
+  // Live clock label that ticks the seconds, for the scoreboard demo.
+  const mmss = (min: number, t: number): string =>
+    `${min}:${String((Math.floor(t) + 14) % 60).padStart(2, "0")}`;
+
+  const slides: Array<{ secs: number; name: string; draw: (c: Canvas, t: number) => void }> = [
+    {
+      secs: 6,
+      name: "scoreboard · COL 1–0 POR (ticking clock)",
+      draw: (c, t) => drawScoreboard(c, colpor, mmss(67, t)),
+    },
+    {
+      secs: 6,
+      name: "scoreboard · BRA 2–2 ARG",
+      draw: (c, t) => drawScoreboard(c, braarg, mmss(81, t)),
+    },
+    {
+      secs: 4,
+      name: "scoreboard · stoppage time 45+2",
+      draw: (c) => drawScoreboard(c, braarg, "45+2"),
+    },
+    {
+      secs: 5,
+      name: "kickoff · GER v PAR (no VS)",
+      draw: (c) => drawKickoff(c, kickoff, new Date()),
+    },
+    {
+      secs: 5,
+      name: "GOAL · Brazil (24×16 hero flag)",
+      draw: (c, t) => drawGoal(c, resolveTeam({ code: "BRA", name: "Brazil" }), t),
+    },
+    {
+      secs: 5,
+      name: "GOAL · Portugal (24×16 hero flag)",
+      draw: (c, t) => drawGoal(c, resolveTeam({ code: "POR", name: "Portugal" }), t),
+    },
+  ];
+
+  const total = slides.reduce((s, x) => s + x.secs, 0);
+  log(
+    `SHOWCASE → ${cfg.wledHost}:${cfg.wledPort} — ${slides.length} slides, ${total}s loop (Ctrl-C to stop)`,
+  );
+  const t0 = performance.now() / 1000;
+  let lastName = "";
+  const timer = setInterval(
+    () => {
+      const elapsed = (performance.now() / 1000 - t0) % total;
+      let acc = 0;
+      let slide = slides[0]!;
+      let local = elapsed;
+      for (const s of slides) {
+        if (elapsed < acc + s.secs) {
+          slide = s;
+          local = elapsed - acc;
+          break;
+        }
+        acc += s.secs;
+      }
+      if (slide.name !== lastName) {
+        log(`▶ ${slide.name}`);
+        lastName = slide.name;
+      }
+      slide.draw(canvas, local);
+      void sender
+        .send(serializeFrame(canvas.data, order, cfg.brightness, cfg.gamma))
+        .catch(() => {});
+    },
+    Math.round(1000 / cfg.fps),
+  );
+  await untilInterrupt(() => {
+    clearInterval(timer);
+    sender.close();
+  });
 }
 
 function cmdPreview(flags: ConfigFlags & { out?: string }): void {
@@ -149,17 +275,46 @@ function cmdPreview(flags: ConfigFlags & { out?: string }): void {
     away: side("MEX", "Mexico", 0),
   };
 
-  add((c) => drawScoreboard(c, live, 0));
+  add((c) => drawScoreboard(c, live, "67:14"));
   add((c) => drawScoreboard(c, ht));
   add((c) => drawScoreboard(c, ft));
   add((c) => drawKickoff(c, ko, new Date()));
   add((c) => drawIdle(c, new Date(), 0));
   add((c) => drawGoal(c, resolveTeam({ code: "ENG", name: "England" }), 0.2));
-  add((c) => drawGoal(c, resolveTeam({ code: "ENG", name: "England" }), 1.0));
-  add((c) => drawGoal(c, resolveTeam({ code: "BRA", name: "Brazil" }), 1.4));
+  add((c) => drawGoal(c, resolveTeam({ code: "BRA", name: "Brazil" }), 1.0));
+  add((c) => drawGoal(c, resolveTeam({ code: "ARG", name: "Argentina" }), 1.4));
 
-  writeFileSync(join(out, "storyboard.png"), toPng(tile(scenes, 4, 2), { scale: 10 }));
+  writeFileSync(
+    join(out, "storyboard.png"),
+    toPng(tile(scenes, 4, 2), { scale: 10, gamma: cfg.gamma }),
+  );
   log(`wrote ${join(out, "storyboard.png")}`);
+}
+
+/** Contact sheets of every mapped flag in the LED-dot look, at all native sizes. */
+function cmdFlags(flags: ConfigFlags & { out?: string }): void {
+  const cfg = resolveConfig(flags);
+  const out = flags.out ?? "preview";
+  mkdirSync(out, { recursive: true });
+  const codes = [...SPRITE_CODES].sort();
+  const sizes: Array<{ name: string; w: number; h: number; scale: number }> = [
+    { name: "12x8", w: 12, h: 8, scale: 10 },
+    { name: "24x16", w: 24, h: 16, scale: 6 },
+    { name: "48x32", w: 48, h: 32, scale: 3 },
+  ];
+  for (const { name, w, h, scale } of sizes) {
+    const cells = codes.map((code) => {
+      const c = new Canvas(w, h + 6);
+      c.draw(flagSprite(code, w, h), 0, 0);
+      drawText(c, small, code, Math.round(w / 2), h + 1, [255, 255, 255], { center: true });
+      return c;
+    });
+    writeFileSync(
+      join(out, `flags-${name}.png`),
+      toPng(tile(cells, 8, 2), { scale, gamma: cfg.gamma }),
+    );
+  }
+  log(`wrote flags-{12x8,24x16,48x32}.png to ${out}/ (${codes.length} flags each)`);
 }
 
 async function cmdCalibrate(flags: ConfigFlags & { pattern?: string }): Promise<void> {
@@ -168,7 +323,8 @@ async function cmdCalibrate(flags: ConfigFlags & { pattern?: string }): Promise<
   const order = buildPixelOrder(cfg.matrix);
   const sender = new DdpSender({ host: cfg.wledHost, port: cfg.wledPort });
   const canvas = new Canvas(cfg.matrix.width, cfg.matrix.height);
-  const send = (): Promise<void> => sender.send(serializeFrame(canvas.data, order, cfg.brightness));
+  const send = (): Promise<void> =>
+    sender.send(serializeFrame(canvas.data, order, cfg.brightness, cfg.gamma));
   const pattern = flags.pattern ?? "axes";
   log(
     `calibrate pattern=${pattern} layout=${cfg.matrix.layout} serpentine=${cfg.matrix.serpentine}`,
@@ -219,13 +375,14 @@ function printHelp(): void {
       "Commands:",
       "  run         stream the live scoreboard to WLED",
       "  demo        stream a scripted fake match (no API key needed)",
+      "  showcase    loop every interface to the panel (for judging the look)",
       "  preview     render sample scenes to PNG (no hardware)",
       "  calibrate   send a test pattern to map the panel (--pattern axes|border|fill|walk)",
       "  once        fetch and print the current match data",
       "",
       "Common flags: --wled <ip> --key <api-key> --provider api-football|football-data|mock",
-      "              --width 32 --height 30 --layout wled|horizontal|vertical --brightness 0.7",
-      "Env: WC_WLED_HOST, WC_API_KEY, WC_PROVIDER, WC_WIDTH, WC_HEIGHT, WC_BRIGHTNESS …",
+      "              --width 30 --height 32 --brightness 0.7 --gamma 2.2 --rotate 15",
+      "Env: WC_WLED_HOST, WC_API_KEY, WC_PROVIDER, WC_BRIGHTNESS, WC_GAMMA, WC_ROTATE …",
     ].join("\n"),
   );
 }

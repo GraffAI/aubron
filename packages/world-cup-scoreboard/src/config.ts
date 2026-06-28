@@ -13,6 +13,8 @@ export interface Config {
   wledPort: number;
   matrix: MatrixConfig;
   brightness: number;
+  /** Gamma applied to LED output (>1 deepens colours; 1 = raw sRGB). */
+  gamma: number;
   fps: number;
   provider: ProviderKind;
   apiKey?: string;
@@ -23,6 +25,8 @@ export interface Config {
   pollLive: number;
   /** Seconds between polls while idle. */
   pollIdle: number;
+  /** Seconds each match is shown before rotating to the next concurrent one. */
+  rotateSec: number;
   idleMode: IdleMode;
   /** Show the pre-match card when kickoff is within this many minutes. */
   upcomingWithinMin: number;
@@ -46,6 +50,7 @@ export interface ConfigFlags {
   flipX?: boolean;
   flipY?: boolean;
   brightness?: string;
+  gamma?: string;
   fps?: string;
   provider?: string;
   key?: string;
@@ -53,6 +58,7 @@ export interface ConfigFlags {
   season?: string;
   competition?: string;
   poll?: string;
+  rotate?: string;
   idle?: string;
 }
 
@@ -83,19 +89,22 @@ export function resolveConfig(flags: ConfigFlags = {}): Config {
     wledPort: flags.port ? Number(flags.port) : envNum("WC_WLED_PORT", 4048),
     matrix,
     brightness: flags.brightness ? Number(flags.brightness) : envNum("WC_BRIGHTNESS", 1),
+    gamma: flags.gamma ? Number(flags.gamma) : envNum("WC_GAMMA", 2.2),
     fps: flags.fps ? Number(flags.fps) : envNum("WC_FPS", 20),
     provider,
     apiKey: flags.key ?? process.env.WC_API_KEY,
     league: flags.league ? Number(flags.league) : envNum("WC_LEAGUE", 1),
     season: flags.season ? Number(flags.season) : envNum("WC_SEASON", 2026),
     competition: flags.competition ?? process.env.WC_COMPETITION ?? "WC",
-    // api-football's free tier is 100 req/day, so default to a gentle live poll.
+    // Poll briskly while live to catch goals within a few seconds. At ~15s live
+    // (240/h) and 120s idle (30/h) this sits comfortably inside a 7500/day plan.
     pollLive: flags.poll
       ? Number(flags.poll)
-      : envNum("WC_POLL_LIVE", provider === "mock" ? 2 : 45),
-    pollIdle: envNum("WC_POLL_IDLE", provider === "mock" ? 5 : 900),
+      : envNum("WC_POLL_LIVE", provider === "mock" ? 2 : 15),
+    pollIdle: envNum("WC_POLL_IDLE", provider === "mock" ? 5 : 120),
+    rotateSec: flags.rotate ? Number(flags.rotate) : envNum("WC_ROTATE", 15),
     idleMode: (flags.idle ?? process.env.WC_IDLE_MODE) === "off" ? "off" : "clock",
     upcomingWithinMin: envNum("WC_UPCOMING_MIN", 30),
-    finishedLingerMin: envNum("WC_FINISHED_LINGER_MIN", 10),
+    finishedLingerMin: envNum("WC_FINISHED_LINGER_MIN", 60),
   };
 }

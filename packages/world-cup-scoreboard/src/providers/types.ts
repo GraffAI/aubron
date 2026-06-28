@@ -21,6 +21,7 @@ export function buildMatch(input: {
   id: string;
   status: MatchStatus;
   minute?: number;
+  extra?: number;
   kickoff?: string;
   stage?: string;
   home: { code?: string; name: string; score: number };
@@ -30,6 +31,7 @@ export function buildMatch(input: {
     id: input.id,
     status: input.status,
     minute: input.minute,
+    extra: input.extra,
     kickoff: input.kickoff,
     stage: input.stage,
     home: { team: resolveTeam(input.home), score: input.home.score },

@@ -16,7 +16,11 @@ interface AfTeam {
   name: string;
 }
 interface AfFixture {
-  fixture: { id: number; date: string; status: { short: string; elapsed: number | null } };
+  fixture: {
+    id: number;
+    date: string;
+    status: { short: string; elapsed: number | null; extra: number | null };
+  };
   league: { round?: string };
   teams: { home: AfTeam; away: AfTeam };
   goals: { home: number | null; away: number | null };
@@ -63,6 +67,7 @@ export function apiFootballProvider(
             id: String(f.fixture.id),
             status,
             minute: f.fixture.status.elapsed ?? undefined,
+            extra: f.fixture.status.extra ?? undefined,
             kickoff: f.fixture.date,
             stage: stageFromRound(f.league.round),
             home: { name: f.teams.home.name, score: f.goals.home ?? 0 },

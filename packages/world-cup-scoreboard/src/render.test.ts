@@ -46,7 +46,7 @@ describe("flags", () => {
 
 describe("scoreboard", () => {
   it("renders without throwing and lights a reasonable number of pixels", () => {
-    const c = new Canvas(32, 30);
+    const c = new Canvas(30, 32);
     const m: Match = {
       id: "1",
       status: "live",
@@ -54,7 +54,7 @@ describe("scoreboard", () => {
       home: { team: resolveTeam({ code: "ENG", name: "England" }), score: 2 },
       away: { team: resolveTeam({ code: "FRA", name: "France" }), score: 1 },
     };
-    drawScoreboard(c, m, 0);
+    drawScoreboard(c, m);
     expect(lit(c)).toBeGreaterThan(200);
   });
 });

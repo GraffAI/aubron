@@ -4,7 +4,7 @@
  *
  * Two strategies (see DDP research):
  *
- *   - `wled` (recommended): configure the 32x30 matrix + serpentine in WLED's
+ *   - `wled` (recommended): configure the 30x32 matrix + serpentine in WLED's
  *     own 2D settings and stream logical `i = y*width + x`. WLED's ledmap remaps
  *     to the Govee wiring at show() time, so this module emits identity order.
  *   - `vertical` / `horizontal`: WLED is a plain 1D strip and *we* remap. Govee
@@ -26,8 +26,8 @@ export interface MatrixConfig {
 }
 
 export const DEFAULT_MATRIX: MatrixConfig = {
-  width: 32,
-  height: 30,
+  width: 30,
+  height: 32,
   layout: "wled",
   serpentine: true,
   flipX: false,
@@ -74,24 +74,43 @@ export function buildPixelOrder(cfg: MatrixConfig): Int32Array {
   return order;
 }
 
+const lutCache = new Map<string, Uint8Array>();
+
+/**
+ * A 256-entry tone curve combining gamma and brightness. Raw 8-bit sRGB values
+ * sent straight to LEDs look washed/pastel (especially greens); a gamma > 1
+ * deepens the lows, restoring saturation and contrast. `gamma = 1` is a no-op.
+ */
+export function toneLut(gamma: number, brightness = 1): Uint8Array {
+  const key = `${gamma}|${brightness}`;
+  const cached = lutCache.get(key);
+  if (cached) return cached;
+  const b = Math.max(0, Math.min(1, brightness));
+  const lut = new Uint8Array(256);
+  for (let v = 0; v < 256; v++) lut[v] = Math.round(Math.pow(v / 255, gamma) * b * 255);
+  lutCache.set(key, lut);
+  return lut;
+}
+
 /**
  * Serialize a canvas's RGB into physical-LED order as a flat byte stream
  * (3 bytes/LED). `rgb` is the canvas's row-major buffer; `order` comes from
- * `buildPixelOrder`. `brightness` (0..1) scales every channel.
+ * `buildPixelOrder`. Each channel is passed through the gamma/brightness curve.
  */
 export function serializeFrame(
   rgb: Uint8ClampedArray,
   order: Int32Array,
   brightness = 1,
+  gamma = 1,
 ): Uint8Array {
   const out = new Uint8Array(order.length * 3);
-  const b = Math.max(0, Math.min(1, brightness));
+  const lut = toneLut(gamma, brightness);
   for (let p = 0; p < order.length; p++) {
     const src = order[p]! * 3;
     const dst = p * 3;
-    out[dst] = rgb[src]! * b;
-    out[dst + 1] = rgb[src + 1]! * b;
-    out[dst + 2] = rgb[src + 2]! * b;
+    out[dst] = lut[rgb[src]!]!;
+    out[dst + 1] = lut[rgb[src + 1]!]!;
+    out[dst + 2] = lut[rgb[src + 2]!]!;
   }
   return out;
 }

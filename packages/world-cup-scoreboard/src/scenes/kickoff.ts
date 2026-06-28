@@ -4,18 +4,16 @@
  */
 import type { Canvas, RGB } from "../canvas.js";
 import { hex } from "../canvas.js";
-import { renderFlag } from "../flags/draw.js";
-import { flagFor } from "../flags/registry.js";
+import { flagSprite } from "../flags/sprites.js";
 import { drawText, small } from "../font.js";
 import type { Match } from "../model.js";
 
-const BG: RGB = hex("#070A12");
+const BG: RGB = [0, 0, 0];
 const INK: RGB = hex("#E8EDF7");
 const ACCENT: RGB = hex("#FFB020");
 
 function flag(canvas: Canvas, code: string, x: number, y: number, w: number, h: number): void {
-  canvas.fillRect(x - 1, y - 1, w + 2, h + 2, hex("#1B2233"));
-  canvas.draw(renderFlag(flagFor(code), w, h), x, y);
+  canvas.draw(flagSprite(code, w, h), x, y);
 }
 
 /** Minutes-to-kickoff label, e.g. "IN 23M" / "IN 2H" / "KICKOFF". */
@@ -35,15 +33,12 @@ export function drawKickoff(canvas: Canvas, match: Match, now: Date): void {
     drawText(canvas, small, match.stage, Math.round(w / 2), 1, ACCENT, { center: true });
   }
 
-  // Two flags side by side near the top.
-  const fw = 13;
-  const fh = 9;
+  // Two flags side by side near the top (12×8 native sprite size).
+  const fw = 12;
+  const fh = 8;
   const top = 8;
   flag(canvas, match.home.team.code, 2, top, fw, fh);
   flag(canvas, match.away.team.code, w - fw - 2, top, fw, fh);
-
-  // "VS" in the gutter between them.
-  drawText(canvas, small, "VS", Math.round(w / 2), top + 2, INK, { center: true });
 
   // Codes under each flag.
   drawText(canvas, small, match.home.team.code, 2 + Math.floor(fw / 2), top + fh + 2, INK, {

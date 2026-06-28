@@ -1,21 +1,28 @@
 /**
  * The GOAL celebration, themed in the scoring team's colours. Timeline (seconds):
  *
- *   0.00–0.45  white flash that fades out
- *   0.45–end   pulsing two-tone background, big bouncing "GOAL!", and confetti
- *              raining in the team's colours; the team code flickers in below.
+ *   0.00–0.40  white flash that fades out
+ *   0.40–end   black background, big "GOAL!" in the team's brightest colour, the
+ *              scoring team's flag centred, and confetti raining in team colours.
+ *
+ * Black background (not a coloured field) so the text and flag stay crisp — the
+ * colour identity comes from the text + flag, not a wash that swallows them.
  *
  * Deterministic in `t` (no RNG) so the same instant always renders identically —
  * handy for previews and tests.
  */
 import type { Canvas, RGB } from "../canvas.js";
-import { hex, mix, scale } from "../canvas.js";
-import { drawText, measure, small } from "../font.js";
+import { flagSprite } from "../flags/sprites.js";
+import { drawText, small } from "../font.js";
 import type { Team } from "../teams.js";
 
 export const GOAL_DURATION = 4.2;
 
-const WHITE: RGB = hex("#FFFFFF");
+const BLACK: RGB = [0, 0, 0];
+
+function luma(c: RGB): number {
+  return 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+}
 
 /** Cheap deterministic hash → [0, 1). */
 function rand(i: number): number {
@@ -24,7 +31,7 @@ function rand(i: number): number {
 }
 
 function drawConfetti(canvas: Canvas, t: number, a: RGB, b: RGB): void {
-  const count = 46;
+  const count = 38;
   for (let i = 0; i < count; i++) {
     const speed = 6 + rand(i) * 10;
     const x = Math.floor(rand(i * 3 + 1) * canvas.width);
@@ -36,48 +43,38 @@ function drawConfetti(canvas: Canvas, t: number, a: RGB, b: RGB): void {
 
 /** Render one frame of the celebration. `t` is seconds since the goal fired. */
 export function drawGoal(canvas: Canvas, team: Team, t: number): void {
-  const primary = team.primary;
-  const secondary = team.secondary;
-
-  // Pulsing two-tone field.
-  const pulse = (Math.sin(t * 7) + 1) / 2;
-  const base = mix(scale(primary, 0.35), scale(secondary, 0.55), pulse);
-  canvas.clear(base);
-
-  // Sweeping bands of the team colours for energy.
-  for (let y = 0; y < canvas.height; y++) {
-    const band = Math.sin(y * 0.5 - t * 9);
-    if (band > 0.4) canvas.hLine(0, y, canvas.width, scale(primary, 0.6), 0.5);
+  // Opening white flash: a full-panel pop that fades to black, then the tableau.
+  if (t < 0.4) {
+    const v = Math.round(255 * (1 - t / 0.4));
+    canvas.clear([v, v, v]);
+    return;
   }
 
-  drawConfetti(canvas, t, primary, secondary);
+  canvas.clear(BLACK);
 
-  // Big bouncing "GOAL" — scaled small-font, with a 1px shadow for contrast.
-  const text = "GOAL";
+  // Pick the brighter of the team's two colours for the text so it always reads
+  // against black; the other becomes a drop-shadow accent for a little depth.
+  const bright = luma(team.primary) >= luma(team.secondary) ? team.primary : team.secondary;
+  const accent = bright === team.primary ? team.secondary : team.primary;
+
+  // Confetti behind everything, in the team colours.
+  drawConfetti(canvas, t, team.primary, team.secondary);
+
+  // The scoring team's flag as a 24×16 hero, centred below the title — big
+  // enough to carry the identity, so no separate code is needed.
+  const fw = 24;
+  const fh = 16;
+  const fx = Math.round((canvas.width - fw) / 2);
+  const fy = 13;
+  canvas.draw(flagSprite(team.code, fw, fh), fx, fy);
+
+  // "GOAL" across the top, with a tiny bounce, in the bright team colour over an
+  // accent-coloured shadow so it pops off the flag/confetti.
+  const label = "GOAL";
   const sc = 2;
-  const w = measure(small, text, 1) * sc;
-  const x = Math.round((canvas.width - w) / 2);
-  const bounce = Math.round(Math.abs(Math.sin(t * 6)) * 2);
-  const baseY = Math.round(canvas.height * 0.28) - bounce;
-  drawText(canvas, small, text, x + 1, baseY + 1, hex("#000000"), { scale: sc, alpha: 0.6 });
-  const flicker = Math.floor(t * 12) % 6 === 0 ? mix(WHITE, primary, 0.4) : WHITE;
-  drawText(canvas, small, text, x, baseY, flicker, { scale: sc });
-
-  // Scoring team code below.
-  const codeY = Math.round(canvas.height * 0.62);
-  drawText(canvas, small, team.code, Math.round(canvas.width / 2), codeY, WHITE, {
-    center: true,
-    scale: 1,
-  });
-
-  // Opening white flash.
-  if (t < 0.45) fadeWhite(canvas, 1 - t / 0.45);
-}
-
-function fadeWhite(canvas: Canvas, amount: number): void {
-  for (let i = 0; i < canvas.data.length; i += 3) {
-    canvas.data[i] = canvas.data[i]! + (255 - canvas.data[i]!) * amount;
-    canvas.data[i + 1] = canvas.data[i + 1]! + (255 - canvas.data[i + 1]!) * amount;
-    canvas.data[i + 2] = canvas.data[i + 2]! + (255 - canvas.data[i + 2]!) * amount;
-  }
+  const gx = Math.round(canvas.width / 2);
+  const bounce = Math.round(Math.abs(Math.sin(t * 6)) * 1.5);
+  const gy = 1 + bounce;
+  drawText(canvas, small, label, gx + 1, gy + 1, accent, { center: true, scale: sc });
+  drawText(canvas, small, label, gx, gy, bright, { center: true, scale: sc });
 }

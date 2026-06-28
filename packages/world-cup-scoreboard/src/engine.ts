@@ -16,6 +16,7 @@ import type { Provider } from "./providers/types.js";
 import { drawGoal, GOAL_DURATION } from "./scenes/goal.js";
 import { drawIdle } from "./scenes/idle.js";
 import { drawKickoff } from "./scenes/kickoff.js";
+import { selectFixtures } from "./scenes/schedule.js";
 import { drawScoreboard } from "./scenes/scoreboard.js";
 import type { Team } from "./teams.js";
 
@@ -65,6 +66,59 @@ function rank(m: Match): number {
   return m.status === "live" ? 0 : m.status === "halftime" ? 1 : 2;
 }
 
+/**
+ * Whether a match is in the "foreground" window: from 30 min before kickoff,
+ * through the live match, to an hour after full time. These are the matches the
+ * scoreboard/kickoff/FT screens rotate through.
+ */
+function inWindow(
+  m: Match,
+  now: Date,
+  cfg: Pick<Config, "upcomingWithinMin" | "finishedLingerMin">,
+): boolean {
+  if (isActive(m.status)) return true;
+  if (m.status === "scheduled") {
+    const mins = minutesUntil(m.kickoff, now);
+    return mins >= 0 && mins <= cfg.upcomingWithinMin;
+  }
+  if (m.status === "finished") {
+    const since = -minutesUntil(m.kickoff, now) - 115; // approx FT = kickoff + 115'
+    return since >= 0 && since <= cfg.finishedLingerMin;
+  }
+  return false;
+}
+
+/**
+ * The matches to rotate through right now.
+ *
+ * Live games take over completely: while anything is in play we show *only* the
+ * active matches (most-advanced first). The pre-match countdowns and the
+ * post-FT grace period only fill the gaps — when nothing is live we rotate the
+ * window: upcoming-soonest first, then most-recently finished. Empty → the
+ * engine drops to the idle fixture rotation.
+ */
+export function selectDisplaySet(
+  matches: Match[],
+  now: Date,
+  cfg: Pick<Config, "upcomingWithinMin" | "finishedLingerMin">,
+): Match[] {
+  const active = matches
+    .filter((m) => isActive(m.status))
+    .sort((a, b) => rank(a) - rank(b) || (b.minute ?? 0) - (a.minute ?? 0));
+  if (active.length > 0) return active;
+
+  const phase = (m: Match): number => (m.status === "scheduled" ? 0 : 1);
+  return matches
+    .filter((m) => inWindow(m, now, cfg))
+    .sort(
+      (a, b) =>
+        phase(a) - phase(b) ||
+        (a.status === "scheduled"
+          ? minutesUntil(a.kickoff, now) - minutesUntil(b.kickoff, now) // soonest first
+          : minutesUntil(b.kickoff, now) - minutesUntil(a.kickoff, now)), // most recent first
+    );
+}
+
 /** Detect a goal by comparing a previous and current view of the same match. */
 export function detectGoal(prev: Match | undefined, next: Match): GoalEvent | null {
   if (!prev || prev.id !== next.id) return null;
@@ -88,8 +142,19 @@ export class Engine {
   private readonly log: (msg: string) => void;
   private readonly onFrame?: (canvas: Canvas) => void;
 
-  private current: Match | null = null;
+  private matches: Match[] = [];
+  /** Matches currently rotated through (all live, or a single fallback pick). */
+  private displaySet: Match[] = [];
+  private displayIdx = 0;
+  private lastRotateSec = 0;
+  /** When a goal fires, the match to jump to once the celebration ends. */
+  private focusId: string | null = null;
+  /** Per-match anchor for the synthetic ticking clock: when this minute began. */
+  private clockAnchor = new Map<string, { minute: number; at: number }>();
   private prevByMatch = new Map<string, Match>();
+  /** Pending goal celebrations, played back-to-back (so simultaneous goals in
+   * different matches don't clobber each other). */
+  private goalQueue: Array<{ team: Team; matchId: string }> = [];
   private goalTeam: Team | null = null;
   private goalStartSec = 0;
   private startSec = 0;
@@ -123,37 +188,52 @@ export class Engine {
     this.sender?.close();
   }
 
-  /** Fetch matches, update the picked match, and fire goal celebrations. */
+  /** Fetch matches, refresh the rotation set, and fire goal celebrations. */
   private async poll(): Promise<void> {
     try {
       const matches = await this.provider.fetchMatches();
-      const picked = pickMatch(matches, new Date(), this.cfg);
-      if (picked) {
-        const goal = detectGoal(this.prevByMatch.get(picked.id), picked);
+      this.matches = matches;
+
+      // Watch every match for a score change — a goal anywhere should grab the
+      // display, even if we're currently showing a different game.
+      for (const m of matches) {
+        const goal = isActive(m.status) ? detectGoal(this.prevByMatch.get(m.id), m) : null;
         if (goal) {
-          this.goalTeam = goal.team;
-          this.goalStartSec = nowSec();
+          // Queue it — render() plays celebrations one after another.
+          this.goalQueue.push({ team: goal.team, matchId: m.id });
           this.log(
-            `GOAL! ${goal.team.code} (${picked.home.team.code} ${picked.home.score}-${picked.away.score} ${picked.away.team.code})`,
+            `GOAL! ${goal.team.code} (${m.home.team.code} ${m.home.score}-${m.away.score} ${m.away.team.code})`,
           );
         }
-        this.prevByMatch.set(picked.id, picked);
+        // Re-anchor the ticking clock whenever the API's minute advances.
+        if (m.status === "live" && m.minute != null) {
+          const anchor = this.clockAnchor.get(m.id);
+          if (!anchor || anchor.minute !== m.minute) {
+            this.clockAnchor.set(m.id, { minute: m.minute, at: nowSec() });
+          }
+        }
+        this.prevByMatch.set(m.id, m);
       }
-      if (picked?.id !== this.current?.id) {
-        this.log(
-          picked
-            ? `now showing ${picked.home.team.code} v ${picked.away.team.code} (${picked.status})`
-            : "no match — idle",
-        );
+
+      const prevShownId = this.displaySet[this.displayIdx]?.id;
+      const set = selectDisplaySet(matches, new Date(), this.cfg);
+      if (set.length !== this.displaySet.length) {
+        this.log(set.length > 0 ? `rotating ${set.length} live match(es)` : "no match — idle");
       }
-      this.current = picked;
+      this.displaySet = set;
+
+      // Keep the same game on screen across polls; jump to a freshly-scored one.
+      const keepId = this.focusId ?? prevShownId;
+      const idx = keepId ? set.findIndex((m) => m.id === keepId) : -1;
+      this.displayIdx = idx >= 0 ? idx : 0;
+      if (this.focusId && idx >= 0) this.lastRotateSec = nowSec();
+      this.focusId = null;
     } catch (err) {
       this.log(`poll error: ${(err as Error).message}`);
     } finally {
       if (!this.stopped) {
-        const wait =
-          (this.current && isActive(this.current.status) ? this.cfg.pollLive : this.cfg.pollIdle) *
-          1000;
+        const anyActive = this.displaySet.some((m) => isActive(m.status));
+        const wait = (anyActive ? this.cfg.pollLive : this.cfg.pollIdle) * 1000;
         this.pollTimer = setTimeout(() => void this.poll(), wait);
       }
     }
@@ -168,28 +248,72 @@ export class Engine {
       this.onFrame(this.canvas);
       return;
     }
-    const frame = serializeFrame(this.canvas.data, this.order, this.cfg.brightness);
+    const frame = serializeFrame(this.canvas.data, this.order, this.cfg.brightness, this.cfg.gamma);
     void this.sender?.send(frame).catch((err) => this.log(`send error: ${(err as Error).message}`));
   }
 
   /** Compose the canvas for time `t`; returns false if nothing should be sent. */
   render(t: number): boolean {
-    const goalElapsed = nowSec() - this.goalStartSec;
-    if (this.goalTeam && goalElapsed < GOAL_DURATION) {
-      drawGoal(this.canvas, this.goalTeam, goalElapsed);
+    // The current celebration ended → make room for the next queued one.
+    if (this.goalTeam && nowSec() - this.goalStartSec >= GOAL_DURATION) this.goalTeam = null;
+    // Start the next queued goal; land the rotation on its match so it's the one
+    // showing when the celebration ends.
+    if (!this.goalTeam && this.goalQueue.length > 0) {
+      const next = this.goalQueue.shift()!;
+      this.goalTeam = next.team;
+      this.goalStartSec = nowSec();
+      this.focusId = next.matchId;
+      const i = this.displaySet.findIndex((mm) => mm.id === next.matchId);
+      if (i >= 0) {
+        this.displayIdx = i;
+        this.lastRotateSec = nowSec();
+      }
+    }
+    if (this.goalTeam) {
+      drawGoal(this.canvas, this.goalTeam, nowSec() - this.goalStartSec);
       return true;
     }
-    this.goalTeam = null;
 
-    const m = this.current;
-    if (!m) {
-      if (this.cfg.idleMode === "off") return false; // let WLED revert to its effects
-      drawIdle(this.canvas, new Date(), t);
-      return true;
+    if (this.displaySet.length === 0) return this.renderIdle(t);
+
+    // Rotate through the in-window matches on a fixed cadence.
+    if (this.displaySet.length > 1 && nowSec() - this.lastRotateSec >= this.cfg.rotateSec) {
+      this.displayIdx = (this.displayIdx + 1) % this.displaySet.length;
+      this.lastRotateSec = nowSec();
     }
+    const m = this.displaySet[this.displayIdx % this.displaySet.length]!;
     if (m.status === "scheduled") drawKickoff(this.canvas, m, new Date());
-    else drawScoreboard(this.canvas, m, t);
+    else drawScoreboard(this.canvas, m, m.status === "live" ? this.clockLabel(m) : undefined);
     return true;
+  }
+
+  /**
+   * Idle display: rotate through today's (or tomorrow's) fixtures as GROUP-style
+   * countdown cards, alternating with the clock, every `rotateSec`.
+   */
+  private renderIdle(t: number): boolean {
+    if (this.cfg.idleMode === "off") return false; // let WLED revert to its effects
+    const now = new Date();
+    const fixtures = selectFixtures(this.matches, now);
+    // panels: [match, clock, match, clock, …]; null means the clock screen.
+    const panels: Array<Match | null> = [];
+    for (const m of fixtures.list) panels.push(m, null);
+    if (panels.length === 0) panels.push(null);
+    const panel = panels[Math.floor(t / this.cfg.rotateSec) % panels.length]!;
+    if (panel === null) drawIdle(this.canvas, now, t);
+    else drawKickoff(this.canvas, panel, now);
+    return true;
+  }
+
+  /** Synthetic match clock: "68:24" ticking locally, "45+2" in stoppage. */
+  private clockLabel(m: Match): string {
+    if (m.minute == null) return "LIVE";
+    if (m.extra != null) return `${m.minute}+${m.extra}`;
+    const anchor = this.clockAnchor.get(m.id) ?? { minute: m.minute, at: nowSec() };
+    const total = anchor.minute * 60 + Math.max(0, nowSec() - anchor.at);
+    const min = Math.floor(total / 60);
+    const sec = Math.floor(total % 60);
+    return `${min}:${sec < 10 ? "0" : ""}${sec}`;
   }
 }
 

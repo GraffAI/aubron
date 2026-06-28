@@ -1,0 +1,4 @@
+# ReffPixels flag assets are CC-BY 4.0 — usable but NOT redistributable.
+# Populate locally via deploy/install-flags.sh; the DSL flags are the committed fallback.
+*.png
+LICENCE.txt

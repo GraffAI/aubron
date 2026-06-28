@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { detectGoal, pickMatch } from "./engine.js";
+import { detectGoal, pickMatch, selectDisplaySet } from "./engine.js";
 import type { Match } from "./model.js";
 import { resolveTeam } from "./teams.js";
 
@@ -46,6 +46,49 @@ describe("pickMatch", () => {
 
   it("returns null when nothing is relevant", () => {
     expect(pickMatch([], now, cfg)).toBeNull();
+  });
+});
+
+describe("selectDisplaySet", () => {
+  const now = new Date("2026-06-27T19:30:00Z");
+
+  it("returns every live match (most-advanced first) to rotate through", () => {
+    const matches = [
+      match({ id: "a", status: "live", minute: 12 }),
+      match({ id: "b", status: "live", minute: 70 }),
+      match({ id: "c", status: "halftime", minute: 45 }),
+      match({ id: "d", status: "scheduled", kickoff: "2026-06-27T23:00:00Z" }),
+    ];
+    expect(selectDisplaySet(matches, now, cfg).map((m) => m.id)).toEqual(["b", "a", "c"]);
+  });
+
+  it("shows only live matches when any are in play (preempts upcoming + finished)", () => {
+    const matches = [
+      match({ id: "live", status: "live", minute: 30 }),
+      match({ id: "soon", status: "scheduled", kickoff: "2026-06-27T19:50:00Z" }), // 20' out
+      match({ id: "done", status: "finished", kickoff: "2026-06-27T17:33:00Z" }), // FT ~2' ago
+    ];
+    expect(selectDisplaySet(matches, now, cfg).map((m) => m.id)).toEqual(["live"]);
+  });
+
+  it("falls back to a single upcoming/finished pick when nothing is live", () => {
+    const matches = [match({ id: "soon", status: "scheduled", kickoff: "2026-06-27T19:50:00Z" })];
+    expect(selectDisplaySet(matches, now, cfg).map((m) => m.id)).toEqual(["soon"]);
+  });
+
+  it("keeps a just-finished match in the linger window but drops older ones", () => {
+    const min = (n: number) => new Date(now.getTime() + n * 60000).toISOString();
+    const recent = match({ id: "recent", status: "finished", kickoff: min(-117) }); // FT ~2' ago
+    const old = match({ id: "old", status: "finished", kickoff: min(-140) }); // FT ~25' ago
+    const ids = selectDisplaySet([recent, old], now, cfg).map((m) => m.id);
+    expect(ids).toContain("recent");
+    expect(ids).not.toContain("old");
+  });
+
+  it("is empty when nothing is relevant", () => {
+    const later = match({ id: "later", status: "scheduled", kickoff: "2026-06-27T23:00:00Z" });
+    expect(selectDisplaySet([later], now, cfg)).toEqual([]);
+    expect(selectDisplaySet([], now, cfg)).toEqual([]);
   });
 });
 
