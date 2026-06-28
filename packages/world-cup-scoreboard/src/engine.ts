@@ -25,6 +25,40 @@ export interface GoalEvent {
   team: Team;
 }
 
+/**
+ * The payload handed to the `onGoal` hook when a celebration starts on screen —
+ * enough for an external system (e.g. a Home Assistant webhook) to react, like
+ * casting a "GOAL!" chime to a Nest Hub. Scores are the post-goal scoreline.
+ */
+export interface GoalAnnouncement {
+  competition: string;
+  matchId: string;
+  /** Scoring team's FIFA code and display name (handy for TTS). */
+  team: string;
+  teamName: string;
+  home: string;
+  away: string;
+  homeScore: number;
+  awayScore: number;
+  /** Match minute when the goal landed, if known. */
+  minute: number | null;
+}
+
+/** Build the `onGoal` payload from a freshly-scored match. */
+export function goalAnnouncement(m: Match, team: Team, competition: string): GoalAnnouncement {
+  return {
+    competition,
+    matchId: m.id,
+    team: team.code,
+    teamName: team.name,
+    home: m.home.team.code,
+    away: m.away.team.code,
+    homeScore: m.home.score,
+    awayScore: m.away.score,
+    minute: m.minute ?? null,
+  };
+}
+
 function minutesUntil(iso: string | undefined, now: Date): number {
   if (!iso) return Infinity;
   return (new Date(iso).getTime() - now.getTime()) / 60000;
@@ -130,6 +164,12 @@ export function detectGoal(prev: Match | undefined, next: Match): GoalEvent | nu
 export interface EngineHooks {
   /** Called with each rendered frame; default streams it over DDP. */
   onFrame?: (canvas: Canvas) => void;
+  /**
+   * Called once when a goal celebration starts on screen (not at detection — so
+   * it lands with the celebration even when goals are queued back-to-back).
+   * Fire-and-forget: it must not throw or block the render loop.
+   */
+  onGoal?: (a: GoalAnnouncement) => void;
   log?: (msg: string) => void;
 }
 
@@ -141,6 +181,7 @@ export class Engine {
   private readonly sender: DdpSender | null;
   private readonly log: (msg: string) => void;
   private readonly onFrame?: (canvas: Canvas) => void;
+  private readonly onGoal?: (a: GoalAnnouncement) => void;
 
   private matches: Match[] = [];
   /** Matches currently rotated through (all live, or a single fallback pick). */
@@ -154,7 +195,7 @@ export class Engine {
   private prevByMatch = new Map<string, Match>();
   /** Pending goal celebrations, played back-to-back (so simultaneous goals in
    * different matches don't clobber each other). */
-  private goalQueue: Array<{ team: Team; matchId: string }> = [];
+  private goalQueue: Array<{ team: Team; matchId: string; announce: GoalAnnouncement }> = [];
   private goalTeam: Team | null = null;
   private goalStartSec = 0;
   private startSec = 0;
@@ -172,6 +213,7 @@ export class Engine {
         ? null
         : new DdpSender({ host: cfg.wledHost, port: cfg.wledPort });
     this.onFrame = hooks.onFrame;
+    this.onGoal = hooks.onGoal;
     this.log = hooks.log ?? (() => {});
   }
 
@@ -200,7 +242,11 @@ export class Engine {
         const goal = isActive(m.status) ? detectGoal(this.prevByMatch.get(m.id), m) : null;
         if (goal) {
           // Queue it — render() plays celebrations one after another.
-          this.goalQueue.push({ team: goal.team, matchId: m.id });
+          this.goalQueue.push({
+            team: goal.team,
+            matchId: m.id,
+            announce: goalAnnouncement(m, goal.team, this.cfg.competition),
+          });
           this.log(
             `GOAL! ${goal.team.code} (${m.home.team.code} ${m.home.score}-${m.away.score} ${m.away.team.code})`,
           );
@@ -263,6 +309,9 @@ export class Engine {
       this.goalTeam = next.team;
       this.goalStartSec = nowSec();
       this.focusId = next.matchId;
+      // Tell any external listener (e.g. a Home Assistant webhook → Nest Hub
+      // chime) the celebration is now on screen. Must never throw in here.
+      this.onGoal?.(next.announce);
       const i = this.displaySet.findIndex((mm) => mm.id === next.matchId);
       if (i >= 0) {
         this.displayIdx = i;

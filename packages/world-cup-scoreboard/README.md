@@ -131,23 +131,25 @@ worldcup once       fetch and print the current match data
 
 Every flag has an env-var fallback, so it runs cleanly as a service/container.
 
-| Flag                   | Env                       | Default     | Meaning                                              |
-| ---------------------- | ------------------------- | ----------- | ---------------------------------------------------- |
-| `--wled <ip>`          | `WC_WLED_HOST`            | —           | WLED controller IP (required for run/demo/calibrate) |
-| `--port`               | `WC_WLED_PORT`            | `4048`      | DDP UDP port                                         |
-| `--width` / `--height` | `WC_WIDTH` / `WC_HEIGHT`  | `30` / `32` | Matrix size                                          |
-| `--layout`             | `WC_LAYOUT`               | `wled`      | `wled` \| `horizontal` \| `vertical`                 |
-| `--serpentine`         | `WC_SERPENTINE`           | on          | Boustrophedon wiring (for non-`wled` layouts)        |
-| `--flipX` / `--flipY`  | `WC_FLIP_X` / `WC_FLIP_Y` | off         | Mirror axes                                          |
-| `--brightness`         | `WC_BRIGHTNESS`           | `1`         | 0–1 master scale                                     |
-| `--gamma`              | `WC_GAMMA`                | `2.2`       | Colour gamma (>1 deepens; `1` = raw sRGB)            |
-| `--fps`                | `WC_FPS`                  | `20`        | Frame rate (DDP)                                     |
-| `--provider`           | `WC_PROVIDER`             | auto        | `api-football` \| `football-data` \| `mock`          |
-| `--key`                | `WC_API_KEY`              | —           | Data API key                                         |
-| `--poll`               | `WC_POLL_LIVE`            | `15`        | Seconds between polls while a match is live          |
-| `--rotate`             | `WC_ROTATE`               | `15`        | Seconds each match shows before rotating to the next |
-| `--idle`               | `WC_IDLE_MODE`            | `clock`     | `clock` (fixtures + clock) or `off` (release WLED)   |
-| —                      | `WC_FLAG_DIR`             | bundled     | Override the flag-asset directory                    |
+| Flag                   | Env                          | Default     | Meaning                                                                                      |
+| ---------------------- | ---------------------------- | ----------- | -------------------------------------------------------------------------------------------- |
+| `--wled <ip>`          | `WC_WLED_HOST`               | —           | WLED controller IP (required for run/demo/calibrate)                                         |
+| `--port`               | `WC_WLED_PORT`               | `4048`      | DDP UDP port                                                                                 |
+| `--width` / `--height` | `WC_WIDTH` / `WC_HEIGHT`     | `30` / `32` | Matrix size                                                                                  |
+| `--layout`             | `WC_LAYOUT`                  | `wled`      | `wled` \| `horizontal` \| `vertical`                                                         |
+| `--serpentine`         | `WC_SERPENTINE`              | on          | Boustrophedon wiring (for non-`wled` layouts)                                                |
+| `--flipX` / `--flipY`  | `WC_FLIP_X` / `WC_FLIP_Y`    | off         | Mirror axes                                                                                  |
+| `--brightness`         | `WC_BRIGHTNESS`              | `1`         | 0–1 master scale                                                                             |
+| `--gamma`              | `WC_GAMMA`                   | `2.2`       | Colour gamma (>1 deepens; `1` = raw sRGB)                                                    |
+| `--fps`                | `WC_FPS`                     | `20`        | Frame rate (DDP)                                                                             |
+| `--provider`           | `WC_PROVIDER`                | auto        | `api-football` \| `football-data` \| `mock`                                                  |
+| `--key`                | `WC_API_KEY`                 | —           | Data API key                                                                                 |
+| `--poll`               | `WC_POLL_LIVE`               | `15`        | Seconds between polls while a match is live                                                  |
+| `--rotate`             | `WC_ROTATE`                  | `15`        | Seconds each match shows before rotating to the next                                         |
+| `--idle`               | `WC_IDLE_MODE`               | `clock`     | `clock` (fixtures + clock) or `off` (release WLED)                                           |
+| `--goalWebhook <url>`  | `WC_GOAL_WEBHOOK`            | —           | POST each goal here (see [Goal sound effects](#goal-sound-effects-home-assistant--nest-hub)) |
+| —                      | `WC_GOAL_WEBHOOK_TIMEOUT_MS` | `2000`      | Abort the goal webhook POST after this many ms                                               |
+| —                      | `WC_FLAG_DIR`                | bundled     | Override the flag-asset directory                                                            |
 
 ## Run as a service
 
@@ -172,6 +174,53 @@ CMD ["worldcup", "run"]
 
 Pass `WC_API_KEY` as a secret and mount your flag assets (or rely on the vector
 fallback). The container only needs LAN access to WLED and outbound HTTPS.
+
+## Goal sound effects (Home Assistant → Nest Hub)
+
+Play a "GOAL!" chime on a Google Nest Hub (or any Cast device / speaker) in time
+with the on-panel celebration. The daemon stays dumb about audio: when a
+celebration **starts on screen** it fires a fire-and-forget JSON `POST` to a
+webhook, and your home-automation layer owns the sound, the device and the
+volume. Because it fires at celebration-start (not at detection), the chime
+lands with the right match even when goals queue up back-to-back.
+
+```sh
+worldcup run --wled 192.168.1.42 --key $WC_API_KEY \
+  --goalWebhook http://homeassistant.local:8123/api/webhook/worldcup_goal
+# or: WC_GOAL_WEBHOOK=http://homeassistant.local:8123/api/webhook/worldcup_goal
+```
+
+The POST body is:
+
+```json
+{
+  "competition": "WC",
+  "matchId": "ENGFRA",
+  "team": "ENG",
+  "teamName": "England",
+  "home": "ENG",
+  "away": "FRA",
+  "homeScore": 2,
+  "awayScore": 1,
+  "minute": 67
+}
+```
+
+**Home Assistant** is the path of least resistance — its Cast integration owns
+discovery, connection and playback, so there's nothing to reimplement here. Drop
+`goal.mp3` in `config/www/` (served as `/local/goal.mp3`), then add the webhook
+automation in [`examples/home-assistant.yaml`](examples/home-assistant.yaml). It
+saves and restores the Hub's volume, and the `teamName`/`minute` fields are there
+if you'd rather have it speak the goal via TTS or pick a team-specific anthem.
+
+> **Two things to expect.** Casting a media item briefly flips the Hub's screen
+> to its now-playing card, and it interrupts whatever was playing — both are
+> inherent to Cast media, not something the daemon can avoid. The webhook is
+> time-boxed (`WC_GOAL_WEBHOOK_TIMEOUT_MS`) and all failures are swallowed, so a
+> missing speaker can never disrupt the scoreboard.
+
+Any HTTP listener works (n8n, a shell script, Node-RED) — Home Assistant is just
+the easiest. Test the whole path without live data via `worldcup demo`.
 
 ## How it works
 

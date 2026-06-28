@@ -32,6 +32,10 @@ export interface Config {
   upcomingWithinMin: number;
   /** Keep showing a finished match for this many minutes after full time. */
   finishedLingerMin: number;
+  /** POST each goal to this URL (e.g. a Home Assistant webhook) for a chime. */
+  goalWebhookUrl?: string;
+  /** Abort the goal webhook POST after this many ms. */
+  goalWebhookTimeoutMs: number;
 }
 
 function envNum(name: string, fallback: number): number {
@@ -60,6 +64,7 @@ export interface ConfigFlags {
   poll?: string;
   rotate?: string;
   idle?: string;
+  goalWebhook?: string;
 }
 
 function asLayout(v: string | undefined, fallback: Layout): Layout {
@@ -106,5 +111,7 @@ export function resolveConfig(flags: ConfigFlags = {}): Config {
     idleMode: (flags.idle ?? process.env.WC_IDLE_MODE) === "off" ? "off" : "clock",
     upcomingWithinMin: envNum("WC_UPCOMING_MIN", 30),
     finishedLingerMin: envNum("WC_FINISHED_LINGER_MIN", 60),
+    goalWebhookUrl: flags.goalWebhook ?? process.env.WC_GOAL_WEBHOOK,
+    goalWebhookTimeoutMs: envNum("WC_GOAL_WEBHOOK_TIMEOUT_MS", 2000),
   };
 }

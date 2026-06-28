@@ -1,0 +1,58 @@
+# Home Assistant automation: play a "GOAL!" chime on a Google Nest Hub when the
+# world-cup-scoreboard daemon fires its goal webhook.
+#
+# Setup:
+#   1. Drop your sound at  <config>/www/goal.mp3   → served as /local/goal.mp3
+#   2. Replace media_player.nest_hub with your device's entity_id.
+#   3. Add this automation (Settings → Automations → ⋮ → Edit in YAML, or paste
+#      into automations.yaml). The webhook_id becomes the URL the daemon hits:
+#        http://<ha-host>:8123/api/webhook/worldcup_goal
+#   4. Point the daemon at it:
+#        worldcup run --wled <ip> --key $WC_API_KEY \
+#          --goalWebhook http://<ha-host>:8123/api/webhook/worldcup_goal
+#
+# The POST body (trigger.json) looks like:
+#   { competition, matchId, team, teamName, home, away, homeScore, awayScore, minute }
+
+- alias: World Cup — goal chime
+  id: worldcup_goal_chime
+  mode: queued # back-to-back goals each get their chime, in order
+  max: 10
+  trigger:
+    - platform: webhook
+      webhook_id: worldcup_goal
+      allowed_methods: [POST]
+      local_only: true # LAN-only; drop if the daemon isn't on the same network
+  variables:
+    hub: media_player.nest_hub
+    goal_volume: 0.8
+  action:
+    # Remember the current volume so music/photos resume at their old level.
+    - variables:
+        prev_volume: "{{ state_attr(hub, 'volume_level') | default(0.4) }}"
+    - service: media_player.volume_set
+      target: { entity_id: "{{ hub }}" }
+      data: { volume_level: "{{ goal_volume }}" }
+    - service: media_player.play_media
+      target: { entity_id: "{{ hub }}" }
+      data:
+        media_content_id: "{{ states('input_text.dummy') if false else '/local/goal.mp3' }}"
+        media_content_type: music
+        # Optional announce overlay (ducks instead of taking over) on supported devices:
+        # extra: { metadata: { metadataType: 3, title: "GOAL! {{ trigger.json.teamName }}" } }
+    # Let the chime play, then restore the prior volume.
+    - delay: "00:00:04"
+    - service: media_player.volume_set
+      target: { entity_id: "{{ hub }}" }
+      data: { volume_level: "{{ prev_volume }}" }
+# --- Alternative: speak the goal instead of a sound effect -------------------
+# Swap the play_media step above for this to have the Hub announce it:
+#
+#   - service: tts.google_translate_say
+#     target: { entity_id: "{{ hub }}" }
+#     data:
+#       message: >-
+#         Goal! {{ trigger.json.teamName }}.
+#         {{ trigger.json.home }} {{ trigger.json.homeScore }},
+#         {{ trigger.json.away }} {{ trigger.json.awayScore }},
+#         {{ trigger.json.minute }} minutes.
