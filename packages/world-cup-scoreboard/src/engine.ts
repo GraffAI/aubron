@@ -89,25 +89,33 @@ function inWindow(
 }
 
 /**
- * The matches to rotate through right now: everything in the foreground window
- * (live first and most-advanced, then upcoming-soonest, then most-recently
- * finished). Empty → the engine drops to the idle fixture rotation.
+ * The matches to rotate through right now.
+ *
+ * Live games take over completely: while anything is in play we show *only* the
+ * active matches (most-advanced first). The pre-match countdowns and the
+ * post-FT grace period only fill the gaps — when nothing is live we rotate the
+ * window: upcoming-soonest first, then most-recently finished. Empty → the
+ * engine drops to the idle fixture rotation.
  */
 export function selectDisplaySet(
   matches: Match[],
   now: Date,
   cfg: Pick<Config, "upcomingWithinMin" | "finishedLingerMin">,
 ): Match[] {
+  const active = matches
+    .filter((m) => isActive(m.status))
+    .sort((a, b) => rank(a) - rank(b) || (b.minute ?? 0) - (a.minute ?? 0));
+  if (active.length > 0) return active;
+
+  const phase = (m: Match): number => (m.status === "scheduled" ? 0 : 1);
   return matches
     .filter((m) => inWindow(m, now, cfg))
     .sort(
       (a, b) =>
-        rank(a) - rank(b) ||
-        (rank(a) === 0
-          ? (b.minute ?? 0) - (a.minute ?? 0) // live: most advanced first
-          : a.status === "scheduled"
-            ? minutesUntil(a.kickoff, now) - minutesUntil(b.kickoff, now) // soonest first
-            : minutesUntil(b.kickoff, now) - minutesUntil(a.kickoff, now)), // most recent first
+        phase(a) - phase(b) ||
+        (a.status === "scheduled"
+          ? minutesUntil(a.kickoff, now) - minutesUntil(b.kickoff, now) // soonest first
+          : minutesUntil(b.kickoff, now) - minutesUntil(a.kickoff, now)), // most recent first
     );
 }
 

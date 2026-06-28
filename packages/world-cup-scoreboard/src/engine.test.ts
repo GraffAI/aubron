@@ -62,6 +62,15 @@ describe("selectDisplaySet", () => {
     expect(selectDisplaySet(matches, now, cfg).map((m) => m.id)).toEqual(["b", "a", "c"]);
   });
 
+  it("shows only live matches when any are in play (preempts upcoming + finished)", () => {
+    const matches = [
+      match({ id: "live", status: "live", minute: 30 }),
+      match({ id: "soon", status: "scheduled", kickoff: "2026-06-27T19:50:00Z" }), // 20' out
+      match({ id: "done", status: "finished", kickoff: "2026-06-27T17:33:00Z" }), // FT ~2' ago
+    ];
+    expect(selectDisplaySet(matches, now, cfg).map((m) => m.id)).toEqual(["live"]);
+  });
+
   it("falls back to a single upcoming/finished pick when nothing is live", () => {
     const matches = [match({ id: "soon", status: "scheduled", kickoff: "2026-06-27T19:50:00Z" })];
     expect(selectDisplaySet(matches, now, cfg).map((m) => m.id)).toEqual(["soon"]);
