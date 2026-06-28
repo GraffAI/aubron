@@ -152,6 +152,9 @@ export class Engine {
   /** Per-match anchor for the synthetic ticking clock: when this minute began. */
   private clockAnchor = new Map<string, { minute: number; at: number }>();
   private prevByMatch = new Map<string, Match>();
+  /** Pending goal celebrations, played back-to-back (so simultaneous goals in
+   * different matches don't clobber each other). */
+  private goalQueue: Array<{ team: Team; matchId: string }> = [];
   private goalTeam: Team | null = null;
   private goalStartSec = 0;
   private startSec = 0;
@@ -196,9 +199,8 @@ export class Engine {
       for (const m of matches) {
         const goal = isActive(m.status) ? detectGoal(this.prevByMatch.get(m.id), m) : null;
         if (goal) {
-          this.goalTeam = goal.team;
-          this.goalStartSec = nowSec();
-          this.focusId = m.id;
+          // Queue it — render() plays celebrations one after another.
+          this.goalQueue.push({ team: goal.team, matchId: m.id });
           this.log(
             `GOAL! ${goal.team.code} (${m.home.team.code} ${m.home.score}-${m.away.score} ${m.away.team.code})`,
           );
@@ -252,12 +254,25 @@ export class Engine {
 
   /** Compose the canvas for time `t`; returns false if nothing should be sent. */
   render(t: number): boolean {
-    const goalElapsed = nowSec() - this.goalStartSec;
-    if (this.goalTeam && goalElapsed < GOAL_DURATION) {
-      drawGoal(this.canvas, this.goalTeam, goalElapsed);
+    // The current celebration ended → make room for the next queued one.
+    if (this.goalTeam && nowSec() - this.goalStartSec >= GOAL_DURATION) this.goalTeam = null;
+    // Start the next queued goal; land the rotation on its match so it's the one
+    // showing when the celebration ends.
+    if (!this.goalTeam && this.goalQueue.length > 0) {
+      const next = this.goalQueue.shift()!;
+      this.goalTeam = next.team;
+      this.goalStartSec = nowSec();
+      this.focusId = next.matchId;
+      const i = this.displaySet.findIndex((mm) => mm.id === next.matchId);
+      if (i >= 0) {
+        this.displayIdx = i;
+        this.lastRotateSec = nowSec();
+      }
+    }
+    if (this.goalTeam) {
+      drawGoal(this.canvas, this.goalTeam, nowSec() - this.goalStartSec);
       return true;
     }
-    this.goalTeam = null;
 
     if (this.displaySet.length === 0) return this.renderIdle(t);
 
