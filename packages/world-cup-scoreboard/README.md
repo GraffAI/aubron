@@ -131,23 +131,34 @@ worldcup once       fetch and print the current match data
 
 Every flag has an env-var fallback, so it runs cleanly as a service/container.
 
-| Flag                   | Env                       | Default     | Meaning                                              |
-| ---------------------- | ------------------------- | ----------- | ---------------------------------------------------- |
-| `--wled <ip>`          | `WC_WLED_HOST`            | —           | WLED controller IP (required for run/demo/calibrate) |
-| `--port`               | `WC_WLED_PORT`            | `4048`      | DDP UDP port                                         |
-| `--width` / `--height` | `WC_WIDTH` / `WC_HEIGHT`  | `30` / `32` | Matrix size                                          |
-| `--layout`             | `WC_LAYOUT`               | `wled`      | `wled` \| `horizontal` \| `vertical`                 |
-| `--serpentine`         | `WC_SERPENTINE`           | on          | Boustrophedon wiring (for non-`wled` layouts)        |
-| `--flipX` / `--flipY`  | `WC_FLIP_X` / `WC_FLIP_Y` | off         | Mirror axes                                          |
-| `--brightness`         | `WC_BRIGHTNESS`           | `1`         | 0–1 master scale                                     |
-| `--gamma`              | `WC_GAMMA`                | `2.2`       | Colour gamma (>1 deepens; `1` = raw sRGB)            |
-| `--fps`                | `WC_FPS`                  | `20`        | Frame rate (DDP)                                     |
-| `--provider`           | `WC_PROVIDER`             | auto        | `api-football` \| `football-data` \| `mock`          |
-| `--key`                | `WC_API_KEY`              | —           | Data API key                                         |
-| `--poll`               | `WC_POLL_LIVE`            | `15`        | Seconds between polls while a match is live          |
-| `--rotate`             | `WC_ROTATE`               | `15`        | Seconds each match shows before rotating to the next |
-| `--idle`               | `WC_IDLE_MODE`            | `clock`     | `clock` (fixtures + clock) or `off` (release WLED)   |
-| —                      | `WC_FLAG_DIR`             | bundled     | Override the flag-asset directory                    |
+| Flag                   | Env                               | Default                    | Meaning                                                                            |
+| ---------------------- | --------------------------------- | -------------------------- | ---------------------------------------------------------------------------------- |
+| `--wled <ip>`          | `WC_WLED_HOST`                    | —                          | WLED controller IP (required for run/demo/calibrate)                               |
+| `--port`               | `WC_WLED_PORT`                    | `4048`                     | DDP UDP port                                                                       |
+| `--width` / `--height` | `WC_WIDTH` / `WC_HEIGHT`          | `30` / `32`                | Matrix size                                                                        |
+| `--layout`             | `WC_LAYOUT`                       | `wled`                     | `wled` \| `horizontal` \| `vertical`                                               |
+| `--serpentine`         | `WC_SERPENTINE`                   | on                         | Boustrophedon wiring (for non-`wled` layouts)                                      |
+| `--flipX` / `--flipY`  | `WC_FLIP_X` / `WC_FLIP_Y`         | off                        | Mirror axes                                                                        |
+| `--brightness`         | `WC_BRIGHTNESS`                   | `1`                        | 0–1 master scale                                                                   |
+| `--gamma`              | `WC_GAMMA`                        | `2.2`                      | Colour gamma (>1 deepens; `1` = raw sRGB)                                          |
+| `--fps`                | `WC_FPS`                          | `20`                       | Frame rate (DDP)                                                                   |
+| `--provider`           | `WC_PROVIDER`                     | auto                       | `api-football` \| `football-data` \| `mock`                                        |
+| `--key`                | `WC_API_KEY`                      | —                          | Data API key                                                                       |
+| `--poll`               | `WC_POLL_LIVE`                    | `15`                       | Seconds between polls while a match is live                                        |
+| `--rotate`             | `WC_ROTATE`                       | `15`                       | Seconds each match shows before rotating to the next                               |
+| `--idle`               | `WC_IDLE_MODE`                    | `clock`                    | `clock` (fixtures + clock) or `off` (release WLED)                                 |
+| `--goalHorn <mp3>`     | `WC_GOAL_HORN`                    | —                          | Goal horn MP3; enables [goal sound](#goal-sound-effects-announcer-voice--nest-hub) |
+| —                      | `WC_ELEVENLABS_API_KEY`           | —                          | ElevenLabs key → spoken announcer line (horn-only without)                         |
+| `--voice <name\|id>`   | `WC_ELEVENLABS_VOICE`             | British Football Announcer | ElevenLabs voice name or id                                                        |
+| —                      | `WC_ELEVENLABS_MODEL`             | `eleven_v3`                | ElevenLabs model id                                                                |
+| `--hassUrl <url>`      | `WC_HASS_URL`                     | —                          | Home Assistant base URL (cast via its REST API)                                    |
+| —                      | `WC_HASS_TOKEN`                   | —                          | HA long-lived access token                                                         |
+| `--hassEntity <id>`    | `WC_HASS_ENTITY`                  | —                          | `media_player.*` entity to cast to                                                 |
+| —                      | `WC_HASS_VOLUME`                  | —                          | 0–1; duck the player to this for the clip, then restore                            |
+| —                      | `WC_AUDIO_HOST` / `WC_AUDIO_PORT` | auto / `8730`              | LAN host/port the daemon serves goal clips on                                      |
+| `--goalWebhook <url>`  | `WC_GOAL_WEBHOOK`                 | —                          | Alternative: POST each goal here (HA owns the sound)                               |
+| —                      | `WC_GOAL_WEBHOOK_TIMEOUT_MS`      | `2000`                     | Abort the goal webhook POST after this many ms                                     |
+| —                      | `WC_FLAG_DIR`                     | bundled                    | Override the flag-asset directory                                                  |
 
 ## Run as a service
 
@@ -172,6 +183,65 @@ CMD ["worldcup", "run"]
 
 Pass `WC_API_KEY` as a secret and mount your flag assets (or rely on the vector
 fallback). The container only needs LAN access to WLED and outbound HTTPS.
+
+## Goal sound effects (announcer voice → Nest Hub)
+
+When a celebration **starts on screen**, the daemon can narrate the goal in a
+football-commentator voice, splice it onto a goal horn, and cast the result to a
+Google Nest Hub (or any Chromecast):
+
+```
+goal → "Argentina has SCORED, putting them up two to nil in the first half!"
+     → ElevenLabs TTS → [horn ++ speech] → served over HTTP → Home Assistant casts it
+```
+
+The line is built from match context (scoring team, scoreline phrased their way,
+which half). Because it fires at celebration-start — not at detection — the audio
+lands with the right match even when goals queue back-to-back. Synthesis is per
+goal, so the scoreline is always current.
+
+### Setup
+
+1. **Goal horn.** Point `WC_GOAL_HORN` at an MP3 (ideally 44.1 kHz / 128 kbps, to
+   match the synthesized speech for a seamless splice).
+2. **Voice (optional but the whole point).** Set `WC_ELEVENLABS_API_KEY`. The
+   default voice is the stock **British Football Announcer** and the default
+   model is **Eleven v3** (override with `WC_ELEVENLABS_VOICE` — a name or id —
+   and `WC_ELEVENLABS_MODEL`). Without a key it plays the horn alone.
+3. **Where to cast — Home Assistant (direct).** Set `WC_HASS_URL`,
+   `WC_HASS_TOKEN` (a long-lived access token) and `WC_HASS_ENTITY` (the
+   `media_player.*` entity — find it under Developer Tools → States). The daemon
+   calls HA's REST API directly; **no automation to author**. Optionally set
+   `WC_HASS_VOLUME` (0–1) to duck the player up for the clip and restore it after.
+
+```sh
+worldcup run --wled 192.168.1.42 --key $WC_API_KEY \
+  --goalHorn /path/to/goal-horn.mp3 \
+  --hassUrl http://192.168.1.210:8123 --hassEntity media_player.nesthubmax7d7c_2
+# secrets via env: WC_ELEVENLABS_API_KEY, WC_HASS_TOKEN
+```
+
+> **How the audio reaches the Hub.** HA tells the Cast device a URL and the Hub
+> fetches it _itself_, so the daemon serves each clip from memory over HTTP
+> (`WC_AUDIO_PORT`, default `8730`; host auto-detected, override with
+> `WC_AUDIO_HOST`). The daemon must therefore be reachable by the Hub on the LAN.
+
+> **Two things to expect.** Casting briefly flips the Hub's screen to its
+> now-playing card and interrupts whatever was playing — both inherent to Cast.
+> Everything is best-effort: if TTS fails the horn still plays, and any error is
+> logged and swallowed, so a speaker hiccup never disturbs the panel.
+
+### Alternative: a webhook (HA owns the sound)
+
+Prefer to keep the audio logic in Home Assistant? Set `WC_GOAL_WEBHOOK` instead
+of (or alongside) the HA vars. The daemon POSTs the goal as JSON — `team`,
+`teamName`, `home`/`away`, scores, `minute`, plus `line` and (if a horn is set) a
+ready-to-play `audioUrl`. Drop a sound in HA's `config/www/` and wire the webhook
+automation in [`examples/home-assistant.yaml`](examples/home-assistant.yaml). Any
+HTTP listener works (n8n, Node-RED, a shell script).
+
+Test the whole path without live data via `worldcup demo` (its scripted match
+scores a goal).
 
 ## How it works
 

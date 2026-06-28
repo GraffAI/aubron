@@ -16,10 +16,12 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
+import { webhookAnnouncer } from "./announce.js";
 import { Canvas } from "./canvas.js";
-import { resolveConfig, type ConfigFlags } from "./config.js";
+import { resolveConfig, type Config, type ConfigFlags } from "./config.js";
 import { DdpSender } from "./ddp.js";
-import { Engine } from "./engine.js";
+import { Engine, type EngineHooks } from "./engine.js";
+import { createGoalAudio } from "./goalaudio.js";
 import { flagSprite, SPRITE_CODES } from "./flags/sprites.js";
 import { drawText, small } from "./font.js";
 import { buildPixelOrder, serializeFrame } from "./matrix.js";
@@ -34,6 +36,57 @@ import { resolveTeam } from "./teams.js";
 import type { Match } from "./model.js";
 
 const log = (msg: string): void => console.log(`[worldcup] ${msg}`);
+
+/**
+ * Engine hooks shared by `run`/`demo`, plus a cleanup to call on shutdown.
+ *
+ * Goal sound, in order of capability:
+ *  - horn + Home Assistant/webhook → the daemon builds & casts goal audio
+ *    (with a spoken announcer line when an ElevenLabs key is set); or
+ *  - a bare webhook → Home Assistant owns the sound; or
+ *  - nothing.
+ */
+async function buildHooks(cfg: Config): Promise<{ hooks: EngineHooks; close: () => void }> {
+  const hass =
+    cfg.hassUrl && cfg.hassToken && cfg.hassEntity
+      ? { url: cfg.hassUrl, token: cfg.hassToken, entity: cfg.hassEntity, volume: cfg.hassVolume }
+      : undefined;
+
+  if (cfg.goalHornPath && (hass || cfg.goalWebhookUrl)) {
+    const elevenLabs = cfg.elevenLabsApiKey
+      ? {
+          apiKey: cfg.elevenLabsApiKey,
+          voice: cfg.elevenLabsVoice,
+          model: cfg.elevenLabsModel,
+          timeoutMs: cfg.elevenLabsTimeoutMs,
+        }
+      : undefined;
+    log(
+      `goal audio: horn ${cfg.goalHornPath}${elevenLabs ? ` · ${elevenLabs.voice} (${elevenLabs.model})` : " (horn only)"} → ${hass ? `HA ${hass.entity}` : `webhook ${cfg.goalWebhookUrl}`}`,
+    );
+    const ga = await createGoalAudio({
+      hornPath: cfg.goalHornPath,
+      audioHost: cfg.audioHost,
+      audioPort: cfg.audioPort,
+      elevenLabs,
+      hass,
+      webhookUrl: cfg.goalWebhookUrl,
+      webhookTimeoutMs: cfg.goalWebhookTimeoutMs,
+      log,
+    });
+    return { hooks: { log, onGoal: ga.onGoal }, close: ga.close };
+  }
+
+  if (cfg.goalWebhookUrl) {
+    log(`goal webhook → ${cfg.goalWebhookUrl}`);
+    return {
+      hooks: { log, onGoal: webhookAnnouncer(cfg.goalWebhookUrl, log, cfg.goalWebhookTimeoutMs) },
+      close: () => {},
+    };
+  }
+
+  return { hooks: { log }, close: () => {} };
+}
 
 const OPTIONS = {
   wled: { type: "string" },
@@ -55,6 +108,7 @@ const OPTIONS = {
   poll: { type: "string" },
   rotate: { type: "string" },
   idle: { type: "string" },
+  goalWebhook: { type: "string" },
   out: { type: "string" },
   pattern: { type: "string" },
   speed: { type: "string" },
@@ -96,9 +150,13 @@ async function cmdRun(flags: ConfigFlags): Promise<void> {
   log(
     `provider=${provider.name} matrix=${cfg.matrix.width}x${cfg.matrix.height} (${cfg.matrix.layout}) → ${cfg.wledHost}:${cfg.wledPort} @ ${cfg.fps}fps`,
   );
-  const engine = new Engine(cfg, provider, { log });
+  const { hooks, close } = await buildHooks(cfg);
+  const engine = new Engine(cfg, provider, hooks);
   await engine.start();
-  await untilInterrupt(() => engine.stop());
+  await untilInterrupt(() => {
+    engine.stop();
+    close();
+  });
 }
 
 async function cmdDemo(flags: ConfigFlags & { speed?: string }): Promise<void> {
@@ -107,9 +165,13 @@ async function cmdDemo(flags: ConfigFlags & { speed?: string }): Promise<void> {
     throw new Error("demo needs a WLED host — pass --wled <ip> (or use `preview` for PNGs)");
   const provider = mockProvider({ speed: flags.speed ? Number(flags.speed) : 6 });
   log(`DEMO scripted match → ${cfg.wledHost}:${cfg.wledPort} (Ctrl-C to stop)`);
-  const engine = new Engine({ ...cfg, pollLive: 1, pollIdle: 2 }, provider, { log });
+  const { hooks, close } = await buildHooks(cfg);
+  const engine = new Engine({ ...cfg, pollLive: 1, pollIdle: 2 }, provider, hooks);
   await engine.start();
-  await untilInterrupt(() => engine.stop());
+  await untilInterrupt(() => {
+    engine.stop();
+    close();
+  });
 }
 
 /**
@@ -382,7 +444,10 @@ function printHelp(): void {
       "",
       "Common flags: --wled <ip> --key <api-key> --provider api-football|football-data|mock",
       "              --width 30 --height 32 --brightness 0.7 --gamma 2.2 --rotate 15",
-      "Env: WC_WLED_HOST, WC_API_KEY, WC_PROVIDER, WC_BRIGHTNESS, WC_GAMMA, WC_ROTATE …",
+      "Goal audio: --goalHorn <mp3> + (--hassUrl/--hassEntity or --goalWebhook) casts a goal",
+      "            announcement to a Chromecast; set WC_ELEVENLABS_API_KEY for a spoken line.",
+      "Env: WC_WLED_HOST, WC_API_KEY, WC_PROVIDER, WC_GOAL_HORN, WC_ELEVENLABS_API_KEY,",
+      "     WC_HASS_URL, WC_HASS_TOKEN, WC_HASS_ENTITY, WC_GOAL_WEBHOOK …",
     ].join("\n"),
   );
 }

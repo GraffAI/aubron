@@ -1,0 +1,54 @@
+# Home Assistant automation for the *webhook* goal-audio path.
+#
+# You only need this if you set WC_GOAL_WEBHOOK. The simpler setup is to let the
+# daemon drive HA directly (WC_HASS_URL / WC_HASS_TOKEN / WC_HASS_ENTITY) — then
+# there's no automation to maintain. See the README "Goal sound effects".
+#
+# With a horn configured, the daemon POSTs a ready-to-play `audioUrl` (horn +
+# the synthesized announcer line); this automation just casts it. Without a horn,
+# it falls back to a static sound you drop at <config>/www/goal.mp3.
+#
+# Setup:
+#   1. Replace media_player.nesthubmax7d7c_2 with your device's entity_id.
+#   2. Add this automation (Settings → Automations → ⋮ → Edit in YAML). The
+#      webhook_id is the URL the daemon hits:
+#        http://<ha-host>:8123/api/webhook/worldcup_goal
+#   3. Point the daemon at it:
+#        worldcup run --wled <ip> --key $WC_API_KEY \
+#          --goalHorn /path/to/horn.mp3 \
+#          --goalWebhook http://<ha-host>:8123/api/webhook/worldcup_goal
+#
+# POST body: { competition, matchId, team, teamName, home, away, homeScore,
+#              awayScore, minute, line, audioUrl }
+
+- alias: World Cup — goal chime
+  id: worldcup_goal_chime
+  mode: queued # back-to-back goals each get their clip, in order
+  max: 10
+  trigger:
+    - platform: webhook
+      webhook_id: worldcup_goal
+      allowed_methods: [POST]
+      local_only: true # LAN-only; drop if the daemon isn't on the same network
+  variables:
+    hub: media_player.nesthubmax7d7c_2
+    goal_volume: 0.8
+    # The daemon's combined clip if present, else a static fallback sound.
+    clip: "{{ trigger.json.audioUrl | default('/local/goal.mp3', true) }}"
+  action:
+    # Remember the current volume so music/photos resume at their old level.
+    - variables:
+        prev_volume: "{{ state_attr(hub, 'volume_level') | default(0.4) }}"
+    - service: media_player.volume_set
+      target: { entity_id: "{{ hub }}" }
+      data: { volume_level: "{{ goal_volume }}" }
+    - service: media_player.play_media
+      target: { entity_id: "{{ hub }}" }
+      data:
+        media_content_id: "{{ clip }}"
+        media_content_type: music
+    # Let the clip play, then restore the prior volume.
+    - delay: "00:00:06"
+    - service: media_player.volume_set
+      target: { entity_id: "{{ hub }}" }
+      data: { volume_level: "{{ prev_volume }}" }
