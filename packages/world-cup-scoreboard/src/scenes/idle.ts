@@ -8,7 +8,7 @@ import type { Canvas, RGB } from "../canvas.js";
 import { hex, mix } from "../canvas.js";
 import { bigDigits, drawText, small } from "../font.js";
 
-const BG: RGB = hex("#070A12");
+const BG: RGB = [0, 0, 0];
 const INK: RGB = hex("#E8EDF7");
 
 function hhmm(date: Date): string {
@@ -30,18 +30,19 @@ export function drawIdle(canvas: Canvas, now: Date, t = 0): void {
   // Clock HH:MM with a blinking colon, centered.
   const time = hhmm(now);
   const blink = Math.floor(t) % 2 === 0;
-  // Width: each digit is cell+1px, the colon column is 4px wide.
+  // Width: each digit is cell+1px; the colon is 3px wide (1px pad each side of
+  // the 2px dots) so HH:MM fits 30px exactly without clipping the last digit.
   const digitW = bigDigits.width + 1;
-  const width = [...time].reduce((acc, ch) => acc + (ch === ":" ? 4 : digitW), 0) - 1;
+  const width = [...time].reduce((acc, ch) => acc + (ch === ":" ? 3 : digitW), 0) - 1;
   const y = Math.round(canvas.height * 0.5) - 2;
   let cx = Math.round((canvas.width - width) / 2);
   for (const ch of time) {
     if (ch === ":") {
       if (blink) {
-        canvas.fillRect(cx + 1, y + 3, 2, 2, INK);
-        canvas.fillRect(cx + 1, y + 6, 2, 2, INK);
+        canvas.fillRect(cx, y + 3, 2, 2, INK);
+        canvas.fillRect(cx, y + 6, 2, 2, INK);
       }
-      cx += 4;
+      cx += 3;
     } else {
       drawText(canvas, bigDigits, ch, cx, y, INK);
       cx += bigDigits.width + 1;

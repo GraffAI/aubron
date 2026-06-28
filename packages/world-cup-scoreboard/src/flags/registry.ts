@@ -229,6 +229,140 @@ export const FLAGS: Record<string, FlagSpec> = {
       { kind: "star", cx: 0.7, cy: 0.5, r: 0.07, color: W, points: 7 },
     ],
   },
+
+  // ---- the rest of the 2026 field ------------------------------------------
+  ALG: {
+    layers: [
+      { kind: "bands", dir: "v", colors: ["#006233", W] },
+      { kind: "ring", cx: 0.5, cy: 0.5, r: 0.2, t: 0.09, color: "#D21034" },
+      { kind: "star", cx: 0.57, cy: 0.5, r: 0.12, color: "#D21034" },
+    ],
+  },
+  BIH: {
+    layers: [
+      { kind: "fill", color: "#002395" },
+      { kind: "rect", x: 0.42, y: 0, w: 0.3, h: 1, color: "#FECB00" },
+      { kind: "star", cx: 0.5, cy: 0.26, r: 0.1, color: W },
+      { kind: "star", cx: 0.62, cy: 0.62, r: 0.1, color: W },
+    ],
+  },
+  CPV: {
+    layers: [
+      {
+        kind: "bands",
+        dir: "h",
+        colors: ["#003893", W, "#CF2027", W, "#003893"],
+        weights: [6, 1, 1, 1, 3],
+      },
+      { kind: "star", cx: 0.32, cy: 0.55, r: 0.09, color: "#F7D116" },
+    ],
+  },
+  COD: {
+    layers: [
+      { kind: "fill", color: "#007FFF" },
+      { kind: "stripe", color: "#F7D618", t: 0.42, dir: "up" },
+      { kind: "stripe", color: "#CE1021", t: 0.24, dir: "up" },
+      { kind: "star", cx: 0.21, cy: 0.26, r: 0.14, color: "#F7D618" },
+    ],
+  },
+  CUW: {
+    layers: [
+      { kind: "fill", color: "#002B7F" },
+      { kind: "rect", x: 0, y: 0.6, w: 1, h: 0.16, color: "#F9D90F" },
+      { kind: "star", cx: 0.22, cy: 0.28, r: 0.1, color: W },
+      { kind: "star", cx: 0.36, cy: 0.5, r: 0.07, color: W },
+    ],
+  },
+  CZE: {
+    layers: [
+      { kind: "bands", dir: "h", colors: [W, "#D7141A"] },
+      { kind: "rect", x: 0, y: 0, w: 0.4, h: 1, color: "#11457E" },
+    ],
+  },
+  EGY: {
+    layers: [
+      { kind: "bands", dir: "h", colors: ["#CE1126", W, K] },
+      { kind: "star", cx: 0.5, cy: 0.5, r: 0.12, color: "#C8A04F" },
+    ],
+  },
+  HAI: {
+    layers: [
+      { kind: "bands", dir: "h", colors: ["#00209F", "#D21034"] },
+      { kind: "rect", x: 0.34, y: 0.34, w: 0.32, h: 0.32, color: W },
+    ],
+  },
+  IRN: {
+    layers: [
+      { kind: "bands", dir: "h", colors: ["#239F40", W, "#DA0000"] },
+      { kind: "star", cx: 0.5, cy: 0.5, r: 0.08, color: "#DA0000" },
+    ],
+  },
+  IRQ: {
+    layers: [
+      { kind: "bands", dir: "h", colors: ["#CE1126", W, K] },
+      { kind: "star", cx: 0.5, cy: 0.5, r: 0.1, color: "#007A3D" },
+    ],
+  },
+  JOR: {
+    layers: [
+      { kind: "bands", dir: "h", colors: [K, W, "#007A3B"] },
+      { kind: "rect", x: 0, y: 0, w: 0.36, h: 1, color: "#CE1126" },
+      { kind: "star", cx: 0.17, cy: 0.5, r: 0.12, color: W, points: 7 },
+    ],
+  },
+  PAN: {
+    layers: [
+      { kind: "fill", color: W },
+      { kind: "rect", x: 0.5, y: 0, w: 0.5, h: 0.5, color: "#D21034" },
+      { kind: "rect", x: 0, y: 0.5, w: 0.5, h: 0.5, color: "#072357" },
+      { kind: "star", cx: 0.25, cy: 0.25, r: 0.12, color: "#072357" },
+      { kind: "star", cx: 0.75, cy: 0.75, r: 0.12, color: "#D21034" },
+    ],
+  },
+  PAR: {
+    layers: [
+      { kind: "bands", dir: "h", colors: ["#D52B1E", W, "#0038A8"] },
+      { kind: "star", cx: 0.5, cy: 0.5, r: 0.09, color: "#2E7D32" },
+    ],
+  },
+  QAT: {
+    layers: [
+      { kind: "fill", color: "#8A1538" },
+      { kind: "rect", x: 0, y: 0, w: 0.3, h: 1, color: W },
+    ],
+  },
+  SCO: {
+    layers: [
+      { kind: "fill", color: "#0065BF" },
+      { kind: "saltire", color: W, t: 0.22 },
+    ],
+  },
+  RSA: {
+    layers: [
+      {
+        kind: "bands",
+        dir: "h",
+        colors: ["#E03C31", W, "#007A4D", W, "#001489"],
+        weights: [3, 1, 2, 1, 3],
+      },
+      { kind: "rect", x: 0, y: 0, w: 0.32, h: 1, color: K },
+    ],
+  },
+  TUN: {
+    layers: [
+      { kind: "fill", color: "#E70013" },
+      { kind: "disc", cx: 0.5, cy: 0.5, r: 0.24, color: W },
+      { kind: "ring", cx: 0.52, cy: 0.5, r: 0.14, t: 0.06, color: "#E70013" },
+      { kind: "star", cx: 0.57, cy: 0.5, r: 0.09, color: "#E70013" },
+    ],
+  },
+  UZB: {
+    layers: [
+      { kind: "bands", dir: "h", colors: ["#0099B5", W, "#1EB53A"] },
+      { kind: "ring", cx: 0.2, cy: 0.2, r: 0.1, t: 0.045, color: W },
+      { kind: "star", cx: 0.36, cy: 0.2, r: 0.05, color: W },
+    ],
+  },
 };
 
 /** Neutral fallback for nations without a dedicated spec — a clean field the

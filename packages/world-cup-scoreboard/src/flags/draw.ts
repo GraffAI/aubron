@@ -24,6 +24,8 @@ export type Layer =
   /** Upright cross; `ox`/`oy` fractional center (Nordic crosses sit left). */
   | { kind: "cross"; color: Color; t: number; ox?: number; oy?: number }
   | { kind: "saltire"; color: Color; t: number }
+  /** Single diagonal band; `dir` "up" = ⁄ (hoist-bottom → fly-top), "down" = ＼. */
+  | { kind: "stripe"; color: Color; t: number; dir: "up" | "down" }
   /** Centered rhombus (Brazil). `s` scales the half-extents. */
   | { kind: "diamond"; color: Color; s: number }
   /** Filled N-point star at fractional center, radius as fraction of min dim. */
@@ -194,6 +196,17 @@ function paintLayer(buf: Buf, layer: Layer): void {
         for (let x = 0; x < w; x++) {
           const u = (x / w) * h;
           if (Math.abs(u - y) <= t / 2 || Math.abs(u - (h - y)) <= t / 2) buf.px(x, y, c);
+        }
+      return;
+    }
+    case "stripe": {
+      const c = rgb(layer.color);
+      const t = layer.t * min;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const u = (x / w) * h;
+          const d = layer.dir === "down" ? u - y : u - (h - y);
+          if (Math.abs(d) <= t / 2) buf.px(x, y, c);
         }
       return;
     }

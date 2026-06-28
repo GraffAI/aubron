@@ -98,6 +98,50 @@ const SEEDS: Seed[] = [
   { code: "ROU", name: "Romania", primary: "#002B7F", secondary: "#FCD116" },
   { code: "HUN", name: "Hungary", primary: "#CE2939", secondary: "#477050" },
   { code: "IDN", name: "Indonesia", primary: "#FF0000", secondary: "#FFFFFF" },
+
+  // ---- the rest of the actual 2026 field (names match the api-football feed) -
+  { code: "ALG", name: "Algeria", primary: "#006233", secondary: "#D21034" },
+  {
+    code: "BIH",
+    name: "Bosnia & Herzegovina",
+    primary: "#002395",
+    secondary: "#FECB00",
+    aka: ["Bosnia and Herzegovina", "Bosnia"],
+  },
+  {
+    code: "CPV",
+    name: "Cape Verde Islands",
+    primary: "#003893",
+    secondary: "#CF2027",
+    aka: ["Cape Verde", "Cabo Verde"],
+  },
+  {
+    code: "COD",
+    name: "Congo DR",
+    primary: "#007FFF",
+    secondary: "#F7D618",
+    aka: ["DR Congo", "Democratic Republic of the Congo"],
+  },
+  { code: "CUW", name: "Curaçao", primary: "#002B7F", secondary: "#F9D90F", aka: ["Curacao"] },
+  {
+    code: "CZE",
+    name: "Czechia",
+    primary: "#D7141A",
+    secondary: "#11457E",
+    aka: ["Czech Republic"],
+  },
+  { code: "EGY", name: "Egypt", primary: "#CE1126", secondary: "#C8A04F" },
+  { code: "HAI", name: "Haiti", primary: "#00209F", secondary: "#D21034" },
+  { code: "IRN", name: "Iran", primary: "#239F40", secondary: "#DA0000", aka: ["IR Iran"] },
+  { code: "IRQ", name: "Iraq", primary: "#CE1126", secondary: "#007A3D" },
+  { code: "JOR", name: "Jordan", primary: "#CE1126", secondary: "#007A3B" },
+  { code: "PAN", name: "Panama", primary: "#005293", secondary: "#D21034" },
+  { code: "PAR", name: "Paraguay", primary: "#D52B1E", secondary: "#0038A8" },
+  { code: "QAT", name: "Qatar", primary: "#8A1538", secondary: "#FFFFFF" },
+  { code: "SCO", name: "Scotland", primary: "#0065BF", secondary: "#FFFFFF" },
+  { code: "RSA", name: "South Africa", primary: "#007A4D", secondary: "#FFB81C" },
+  { code: "TUN", name: "Tunisia", primary: "#E70013", secondary: "#FFFFFF" },
+  { code: "UZB", name: "Uzbekistan", primary: "#0099B5", secondary: "#1EB53A" },
 ];
 
 const BY_CODE = new Map<string, Team>();

@@ -21,6 +21,8 @@ export interface Match {
   readonly status: MatchStatus;
   /** Elapsed minutes when live, else undefined. */
   readonly minute?: number;
+  /** Stoppage-time minutes added on (minute 45 + extra 2 → "45+2"). */
+  readonly extra?: number;
   /** Kickoff time (ISO) — used for countdowns when scheduled. */
   readonly kickoff?: string;
   readonly home: SideScore;

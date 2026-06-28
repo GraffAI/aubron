@@ -1,6 +1,6 @@
 # @aubron/world-cup-scoreboard
 
-Drive a **32×30 WLED LED matrix** (a converted Govee Elite curtain) as a **live
+Drive a **30×32 WLED LED matrix** (a converted Govee Elite curtain) as a **live
 FIFA World Cup scoreboard**. Whenever a match is on it shows each team's flag,
 the live score and the minute, and fires an animated **GOAL** celebration in the
 scoring team's colours. When nothing's live it shows a clock (or gets out of the
@@ -50,7 +50,7 @@ worldcup run --wled 192.168.1.42 --provider api-football --key $WC_API_KEY
 ## WLED setup (one time)
 
 1. Flash/confirm WLED on the controller (ESP32 strongly recommended for 960 px).
-2. **Settings → LED Preferences → 2D Configuration:** set up a **32×30 matrix**.
+2. **Settings → LED Preferences → 2D Configuration:** set up a **30×32 matrix**.
    Pick the panel orientation / serpentine that matches your curtain wiring (see
    _Calibration_). With the matrix configured, leave this app on the default
    `--layout wled` and WLED's ledmap handles the physical wiring for you.
@@ -109,7 +109,7 @@ Every flag has an env-var fallback, so it runs cleanly as a service/container.
 | ---------------------- | ------------------------- | ----------- | ---------------------------------------------------- |
 | `--wled <ip>`          | `WC_WLED_HOST`            | —           | WLED controller IP (required for run/demo/calibrate) |
 | `--port`               | `WC_WLED_PORT`            | `4048`      | DDP UDP port                                         |
-| `--width` / `--height` | `WC_WIDTH` / `WC_HEIGHT`  | `32` / `30` | Matrix size                                          |
+| `--width` / `--height` | `WC_WIDTH` / `WC_HEIGHT`  | `30` / `32` | Matrix size                                          |
 | `--layout`             | `WC_LAYOUT`               | `wled`      | `wled` \| `horizontal` \| `vertical`                 |
 | `--serpentine`         | `WC_SERPENTINE`           | on          | Boustrophedon wiring (for non-`wled` layouts)        |
 | `--flipX` / `--flipY`  | `WC_FLIP_X` / `WC_FLIP_Y` | off         | Mirror axes                                          |

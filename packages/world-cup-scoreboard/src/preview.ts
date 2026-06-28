@@ -15,12 +15,20 @@ export interface PngOptions {
   scale?: number;
   /** Draw round LEDs on black (true) or flat squares (false). */
   led?: boolean;
+  /** Gamma applied to colours so the preview matches the panel (1 = raw). */
+  gamma?: number;
 }
 
 /** Encode a canvas to a PNG buffer. */
 export function toPng(canvas: Canvas, opts: PngOptions = {}): Buffer {
   const scale = opts.scale ?? 14;
   const led = opts.led ?? true;
+  const gamma = opts.gamma ?? 1;
+  const lut =
+    gamma === 1
+      ? null
+      : Uint8Array.from({ length: 256 }, (_, v) => Math.round((v / 255) ** gamma * 255));
+  const tone = (c: RGB): RGB => (lut ? [lut[c[0]]!, lut[c[1]]!, lut[c[2]]!] : c);
   const W = canvas.width * scale;
   const H = canvas.height * scale;
   const png = new PNG({ width: W, height: H });
@@ -37,7 +45,7 @@ export function toPng(canvas: Canvas, opts: PngOptions = {}): Buffer {
   const r2 = r * r;
   for (let y = 0; y < canvas.height; y++) {
     for (let x = 0; x < canvas.width; x++) {
-      const c = canvas.get(x, y);
+      const c = tone(canvas.get(x, y));
       const cx = x * scale + scale / 2;
       const cy = y * scale + scale / 2;
       for (let py = y * scale; py < (y + 1) * scale; py++) {
