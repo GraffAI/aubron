@@ -3,7 +3,9 @@
  *
  *   worldcup run        --wled <ip> [--key <api-key>] [--provider …]
  *   worldcup demo       --wled <ip> [--speed 6]            # scripted fake match
+ *   worldcup showcase   --wled <ip>                        # loop every interface
  *   worldcup preview    [--out ./preview]                  # PNGs, no hardware
+ *   worldcup flags      [--out ./preview]                  # flag contact sheets
  *   worldcup calibrate  --wled <ip> [--pattern axes|border|fill|walk]
  *   worldcup once       [--key <api-key>] [--provider …]   # print current data
  *
