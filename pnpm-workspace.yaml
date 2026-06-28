@@ -17,6 +17,6 @@ catalog:
   vitest: ^4.1.9
   eslint: ^10.5.0
   "typescript-eslint": ^8.61.1
-  prettier: ^3.8.4
+  prettier: ^3.9.1
   tsx: ^4.22.4
   "@types/node": ^26.0.0
