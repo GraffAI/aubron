@@ -67,9 +67,9 @@ function drawTeamRow(
 function statusLabel(match: Match): string {
   switch (match.status) {
     case "halftime":
-      return "HT";
+      return "HALF"; // "HALF TIME" won't fit 30px on one line; the single word does
     case "finished":
-      return "FT";
+      return "FULL";
     case "live":
       return match.minute != null ? `${match.minute}'` : "LIVE";
     default:

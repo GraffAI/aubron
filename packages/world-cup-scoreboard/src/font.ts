@@ -41,8 +41,8 @@ const SMALL: Record<string, string[]> = {
   J: ["  #","  #","  #","# #","###"],
   K: ["# #","# #","## ","# #","# #"],
   L: ["#  ","#  ","#  ","#  ","###"],
-  M: ["# #","###","###","# #","# #"],
-  N: ["# #","###","###","###","# #"],
+  M: ["#   #","## ##","# # #","#   #","#   #"],
+  N: ["#  #","## #","# ##","#  #","#  #"],
   O: ["###","# #","# #","# #","###"],
   P: ["###","# #","###","#  ","#  "],
   Q: ["###","# #","# #","###","  #"],
@@ -51,7 +51,7 @@ const SMALL: Record<string, string[]> = {
   T: ["###"," # "," # "," # "," # "],
   U: ["# #","# #","# #","# #","###"],
   V: ["# #","# #","# #","# #"," # "],
-  W: ["# #","# #","###","###","# #"],
+  W: ["#   #","#   #","# # #","## ##","#   #"],
   X: ["# #","# #"," # ","# #","# #"],
   Y: ["# #","# #"," # "," # "," # "],
   Z: ["###","  #"," # ","#  ","###"],
@@ -85,9 +85,22 @@ export const small = compile(3, 5, SMALL);
 export const bigDigits = compile(6, 9, BIG_DIGITS);
 
 /** Width in pixels that `text` will occupy in `font` with the given letter spacing. */
+/** Pixel width of a single glyph (glyphs may be wider than the nominal cell). */
+function glyphWidth(font: Font, ch: string): number {
+  const glyph = font.glyphs[ch] ?? font.glyphs[" "];
+  return glyph?.[0]?.length ?? font.width;
+}
+
+/** Width in pixels that `text` occupies, summing each (possibly wider) glyph. */
 export function measure(font: Font, text: string, spacing = 1): number {
-  if (text.length === 0) return 0;
-  return text.length * font.width + (text.length - 1) * spacing;
+  const upper = text.toUpperCase();
+  if (upper.length === 0) return 0;
+  let w = 0;
+  for (let i = 0; i < upper.length; i++) {
+    w += glyphWidth(font, upper[i]!);
+    if (i < upper.length - 1) w += spacing;
+  }
+  return w;
 }
 
 export interface TextOptions {
@@ -113,7 +126,6 @@ export function drawText(
   const alpha = opts.alpha ?? 1;
   const scale = Math.max(1, Math.round(opts.scale ?? 1));
   const upper = text.toUpperCase();
-  const stride = (font.width + spacing) * scale;
   let cx = opts.center ? Math.round(x - (measure(font, upper, spacing) * scale) / 2) : x;
   for (const ch of upper) {
     const glyph = font.glyphs[ch] ?? font.glyphs[" "];
@@ -128,7 +140,7 @@ export function drawText(
         }
       }
     }
-    cx += stride;
+    cx += (glyphWidth(font, ch) + spacing) * scale;
   }
   return cx - spacing * scale;
 }
