@@ -41,8 +41,8 @@ const log = (msg: string): void => console.log(`[worldcup] ${msg}`);
  * Engine hooks shared by `run`/`demo`, plus a cleanup to call on shutdown.
  *
  * Goal sound, in order of capability:
- *  - horn + Home Assistant/webhook → the daemon builds & casts goal audio
- *    (with a spoken announcer line when an ElevenLabs key is set); or
+ *  - horn + Home Assistant/webhook → the daemon casts the goal horn, and (with
+ *    an ElevenLabs key) narrates lead changes and full-time results; or
  *  - a bare webhook → Home Assistant owns the sound; or
  *  - nothing.
  */
@@ -62,7 +62,7 @@ async function buildHooks(cfg: Config): Promise<{ hooks: EngineHooks; close: () 
         }
       : undefined;
     log(
-      `goal audio: horn ${cfg.goalHornPath}${elevenLabs ? ` · ${elevenLabs.voice} (${elevenLabs.model})` : " (horn only)"} → ${hass ? `HA ${hass.entity}` : `webhook ${cfg.goalWebhookUrl}`}`,
+      `goal audio: horn ${cfg.goalHornPath}${elevenLabs ? ` · ${elevenLabs.voice} (${elevenLabs.model}) on lead changes + results` : " (horn only)"} → ${hass ? `HA ${hass.entity}` : `webhook ${cfg.goalWebhookUrl}`}`,
     );
     const ga = await createGoalAudio({
       hornPath: cfg.goalHornPath,
@@ -74,7 +74,7 @@ async function buildHooks(cfg: Config): Promise<{ hooks: EngineHooks; close: () 
       webhookTimeoutMs: cfg.goalWebhookTimeoutMs,
       log,
     });
-    return { hooks: { log, onGoal: ga.onGoal }, close: ga.close };
+    return { hooks: { log, onGoal: ga.onGoal, onMatchEnd: ga.onMatchEnd }, close: ga.close };
   }
 
   if (cfg.goalWebhookUrl) {

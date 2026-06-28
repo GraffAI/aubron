@@ -16,7 +16,12 @@ import { flagSprite } from "../flags/sprites.js";
 import { drawText, small } from "../font.js";
 import type { Team } from "../teams.js";
 
-export const GOAL_DURATION = 4.2;
+/**
+ * How long the celebration holds on screen. Kept generous on purpose: casting
+ * the horn to a Chromecast has a few seconds of connect/buffer latency, so the
+ * celebration should still be up when the sound finally lands.
+ */
+export const GOAL_DURATION = 7;
 
 const BLACK: RGB = [0, 0, 0];
 

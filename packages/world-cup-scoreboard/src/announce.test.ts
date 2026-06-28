@@ -20,17 +20,20 @@ const scored: Match = {
 };
 
 describe("goalAnnouncement", () => {
-  it("captures the scoring team, scoreline and minute", () => {
-    expect(goalAnnouncement(scored, scored.home.team, "WC")).toEqual({
+  it("captures the scoring team, scoreline, minute and lead change", () => {
+    expect(goalAnnouncement(scored, scored.home.team, "WC", true)).toEqual({
       competition: "WC",
       matchId: "ENGFRA",
       team: "ENG",
       teamName: "England",
       home: "ENG",
       away: "FRA",
+      homeName: "England",
+      awayName: "France",
       homeScore: 2,
       awayScore: 1,
       minute: 67,
+      leadChange: true,
     });
   });
 
@@ -41,14 +44,14 @@ describe("goalAnnouncement", () => {
       home: side("ENG", "England", 1),
       away: side("FRA", "France", 0),
     };
-    expect(goalAnnouncement(noMinute, noMinute.away.team, "WC").minute).toBeNull();
+    expect(goalAnnouncement(noMinute, noMinute.away.team, "WC", false).minute).toBeNull();
   });
 });
 
 describe("webhookAnnouncer", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  const announcement = goalAnnouncement(scored, scored.home.team, "WC");
+  const announcement = goalAnnouncement(scored, scored.home.team, "WC", true);
 
   it("POSTs the announcement as JSON", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });

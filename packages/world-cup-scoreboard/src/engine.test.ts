@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { detectGoal, pickMatch, selectDisplaySet } from "./engine.js";
+import { detectFinish, detectGoal, leadChanged, pickMatch, selectDisplaySet } from "./engine.js";
 import type { Match } from "./model.js";
 import { resolveTeam } from "./teams.js";
 
@@ -124,5 +124,51 @@ describe("detectGoal", () => {
 
   it("does not fire when the score is unchanged", () => {
     expect(detectGoal(prev, prev)).toBeNull();
+  });
+});
+
+describe("leadChanged", () => {
+  const at = (h: number, a: number): Match =>
+    match({
+      id: "x",
+      status: "live",
+      home: side("ENG", "England", h),
+      away: side("FRA", "France", a),
+    });
+
+  it("fires when a team takes the lead from level", () => {
+    expect(leadChanged(at(0, 0), at(1, 0))).toBe(true);
+  });
+
+  it("fires when the lead is overtaken", () => {
+    expect(leadChanged(at(1, 0), at(1, 2))).toBe(true);
+  });
+
+  it("fires when a goal levels the score", () => {
+    expect(leadChanged(at(1, 0), at(1, 1))).toBe(true);
+  });
+
+  it("does not fire when the leader extends their lead", () => {
+    expect(leadChanged(at(1, 0), at(2, 0))).toBe(false);
+  });
+
+  it("does not fire on first observation or a different match", () => {
+    expect(leadChanged(undefined, at(1, 0))).toBe(false);
+    expect(leadChanged(at(1, 0), match({ id: "y", status: "live" }))).toBe(false);
+  });
+});
+
+describe("detectFinish", () => {
+  it("fires on the transition to finished", () => {
+    const live = match({ id: "x", status: "live", minute: 90 });
+    const done = match({ id: "x", status: "finished" });
+    expect(detectFinish(live, done)).toBe(true);
+  });
+
+  it("does not fire while already finished, on first sight, or for a different match", () => {
+    const done = match({ id: "x", status: "finished" });
+    expect(detectFinish(done, done)).toBe(false);
+    expect(detectFinish(undefined, done)).toBe(false);
+    expect(detectFinish(match({ id: "y", status: "live" }), done)).toBe(false);
   });
 });
