@@ -36,6 +36,28 @@ export interface Config {
   goalWebhookUrl?: string;
   /** Abort the goal webhook POST after this many ms. */
   goalWebhookTimeoutMs: number;
+  /** MP3 played at the start of every goal clip (before the spoken line). */
+  goalHornPath?: string;
+  /** LAN host the Cast device fetches goal audio from (default: auto-detect). */
+  audioHost?: string;
+  /** Port the daemon serves goal audio on. */
+  audioPort: number;
+  /** ElevenLabs API key — enables a spoken announcer line (env-only). */
+  elevenLabsApiKey?: string;
+  /** ElevenLabs voice id or name. */
+  elevenLabsVoice: string;
+  /** ElevenLabs model id. */
+  elevenLabsModel: string;
+  /** Abort an ElevenLabs synthesis after this many ms. */
+  elevenLabsTimeoutMs: number;
+  /** Home Assistant base URL — cast goal audio via its REST API. */
+  hassUrl?: string;
+  /** Home Assistant long-lived token (env-only). */
+  hassToken?: string;
+  /** media_player entity to cast to, e.g. media_player.nesthubmax7d7c_2. */
+  hassEntity?: string;
+  /** 0–1; raise the player to this for the clip, then restore (optional). */
+  hassVolume?: number;
 }
 
 function envNum(name: string, fallback: number): number {
@@ -65,6 +87,10 @@ export interface ConfigFlags {
   rotate?: string;
   idle?: string;
   goalWebhook?: string;
+  goalHorn?: string;
+  voice?: string;
+  hassUrl?: string;
+  hassEntity?: string;
 }
 
 function asLayout(v: string | undefined, fallback: Layout): Layout {
@@ -113,5 +139,16 @@ export function resolveConfig(flags: ConfigFlags = {}): Config {
     finishedLingerMin: envNum("WC_FINISHED_LINGER_MIN", 60),
     goalWebhookUrl: flags.goalWebhook ?? process.env.WC_GOAL_WEBHOOK,
     goalWebhookTimeoutMs: envNum("WC_GOAL_WEBHOOK_TIMEOUT_MS", 2000),
+    goalHornPath: flags.goalHorn ?? process.env.WC_GOAL_HORN,
+    audioHost: process.env.WC_AUDIO_HOST,
+    audioPort: envNum("WC_AUDIO_PORT", 8730),
+    elevenLabsApiKey: process.env.WC_ELEVENLABS_API_KEY,
+    elevenLabsVoice: flags.voice ?? process.env.WC_ELEVENLABS_VOICE ?? "British Football Announcer",
+    elevenLabsModel: process.env.WC_ELEVENLABS_MODEL ?? "eleven_v3",
+    elevenLabsTimeoutMs: envNum("WC_ELEVENLABS_TIMEOUT_MS", 30_000),
+    hassUrl: flags.hassUrl ?? process.env.WC_HASS_URL,
+    hassToken: process.env.WC_HASS_TOKEN,
+    hassEntity: flags.hassEntity ?? process.env.WC_HASS_ENTITY,
+    hassVolume: process.env.WC_HASS_VOLUME ? Number(process.env.WC_HASS_VOLUME) : undefined,
   };
 }
