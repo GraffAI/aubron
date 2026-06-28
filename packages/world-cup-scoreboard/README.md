@@ -184,30 +184,39 @@ CMD ["worldcup", "run"]
 Pass `WC_API_KEY` as a secret and mount your flag assets (or rely on the vector
 fallback). The container only needs LAN access to WLED and outbound HTTPS.
 
-## Goal sound effects (announcer voice → Nest Hub)
+## Goal sound effects (horn + announcer voice → Nest Hub)
 
-When a celebration **starts on screen**, the daemon can narrate the goal in a
-football-commentator voice, splice it onto a goal horn, and cast the result to a
-Google Nest Hub (or any Chromecast):
+The daemon casts to a Google Nest Hub (or any Chromecast), with two kinds of
+sound:
+
+- **Every goal plays just the horn** — immediate, no narration. The on-screen
+  celebration is held a little longer than the horn needs so it's still up once
+  the Cast device finishes connecting.
+- **Lead changes and full-time results add the announcer voice.** A lead-changing
+  goal (one that takes, overtakes or levels the score) splices the spoken line
+  after the horn; a result is the spoken line on its own.
 
 ```
-goal → "Argentina has SCORED, putting them up two to nil in the first half!"
-     → ElevenLabs TTS → [horn ++ speech] → served over HTTP → Home Assistant casts it
+goal (extends lead) → horn → cast
+goal (lead change)  → horn ++ "Tunisia score, pulling ahead two to one against the United States!"
+full time           → "Tunisia beat the United States two to one!"
+                    → ElevenLabs TTS → served over HTTP → Home Assistant casts it
 ```
 
-The line is built from match context (scoring team, scoreline phrased their way,
-which half). Because it fires at celebration-start — not at detection — the audio
-lands with the right match even when goals queue back-to-back. Synthesis is per
-goal, so the scoreline is always current.
+Lines are built from match context (both teams, scoreline phrased their way) and
+synthesized per event, so the scoreline is always current. Goal audio fires at
+celebration-start — not detection — so it lands with the right match even when
+goals queue back-to-back; results fire at full time.
 
 ### Setup
 
 1. **Goal horn.** Point `WC_GOAL_HORN` at an MP3 (ideally 44.1 kHz / 128 kbps, to
    match the synthesized speech for a seamless splice).
-2. **Voice (optional but the whole point).** Set `WC_ELEVENLABS_API_KEY`. The
-   default voice is the stock **British Football Announcer** and the default
-   model is **Eleven v3** (override with `WC_ELEVENLABS_VOICE` — a name or id —
-   and `WC_ELEVENLABS_MODEL`). Without a key it plays the horn alone.
+2. **Voice (optional but the whole point).** Set `WC_ELEVENLABS_API_KEY` to
+   narrate lead changes and full-time results. The default voice is the stock
+   **British Football Announcer** and the default model is **Eleven v3** (override
+   with `WC_ELEVENLABS_VOICE` — a name or id — and `WC_ELEVENLABS_MODEL`). Without
+   a key, every goal still plays the horn.
 3. **Where to cast — Home Assistant (direct).** Set `WC_HASS_URL`,
    `WC_HASS_TOKEN` (a long-lived access token) and `WC_HASS_ENTITY` (the
    `media_player.*` entity — find it under Developer Tools → States). The daemon
@@ -228,17 +237,18 @@ worldcup run --wled 192.168.1.42 --key $WC_API_KEY \
 
 > **Two things to expect.** Casting briefly flips the Hub's screen to its
 > now-playing card and interrupts whatever was playing — both inherent to Cast.
-> Everything is best-effort: if TTS fails the horn still plays, and any error is
-> logged and swallowed, so a speaker hiccup never disturbs the panel.
+> Everything is best-effort: if TTS fails a goal still plays the horn, and any
+> error is logged and swallowed, so a speaker hiccup never disturbs the panel.
 
 ### Alternative: a webhook (HA owns the sound)
 
 Prefer to keep the audio logic in Home Assistant? Set `WC_GOAL_WEBHOOK` instead
-of (or alongside) the HA vars. The daemon POSTs the goal as JSON — `team`,
-`teamName`, `home`/`away`, scores, `minute`, plus `line` and (if a horn is set) a
-ready-to-play `audioUrl`. Drop a sound in HA's `config/www/` and wire the webhook
-automation in [`examples/home-assistant.yaml`](examples/home-assistant.yaml). Any
-HTTP listener works (n8n, Node-RED, a shell script).
+of (or alongside) the HA vars. The daemon POSTs each event as JSON — `team`,
+`teamName`, `home`/`away`, both team names, scores, `minute`, `leadChange`, plus a
+ready-to-play `audioUrl` and (for lead changes/results) the spoken `line`. Drop a
+sound in HA's `config/www/` and wire the webhook automation in
+[`examples/home-assistant.yaml`](examples/home-assistant.yaml). Any HTTP listener
+works (n8n, Node-RED, a shell script).
 
 Test the whole path without live data via `worldcup demo` (its scripted match
 scores a goal).

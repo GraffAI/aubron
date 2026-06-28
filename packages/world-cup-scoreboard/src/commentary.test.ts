@@ -1,47 +1,73 @@
 import { describe, expect, it } from "vitest";
 
-import { announcementLine } from "./commentary.js";
-import type { GoalAnnouncement } from "./engine.js";
+import { leadChangeLine, resultLine } from "./commentary.js";
+import type { GoalAnnouncement, MatchResult } from "./engine.js";
 
-const base: GoalAnnouncement = {
+const goal: GoalAnnouncement = {
   competition: "WC",
-  matchId: "ARGFRA",
-  team: "ARG",
-  teamName: "Argentina",
-  home: "ARG",
-  away: "FRA",
+  matchId: "TUNUSA",
+  team: "TUN",
+  teamName: "Tunisia",
+  home: "TUN",
+  away: "USA",
+  homeName: "Tunisia",
+  awayName: "USA",
   homeScore: 2,
-  awayScore: 0,
-  minute: 30,
+  awayScore: 1,
+  minute: 60,
+  leadChange: true,
 };
 
-const line = (over: Partial<GoalAnnouncement>): string => announcementLine({ ...base, ...over });
+const leadLine = (over: Partial<GoalAnnouncement>): string => leadChangeLine({ ...goal, ...over });
 
-describe("announcementLine", () => {
-  it("phrases a lead from the scoring team's perspective, with nil", () => {
-    expect(line({})).toBe("Argentina has SCORED, putting them up two to nil in the first half!");
+const result: MatchResult = {
+  competition: "WC",
+  matchId: "TUNUSA",
+  home: "TUN",
+  away: "USA",
+  homeName: "Tunisia",
+  awayName: "USA",
+  homeScore: 2,
+  awayScore: 1,
+};
+
+const ftLine = (over: Partial<MatchResult>): string => resultLine({ ...result, ...over });
+
+describe("leadChangeLine", () => {
+  it("phrases the scoring team pulling ahead, naming the opponent", () => {
+    expect(leadLine({})).toBe("Tunisia score, pulling ahead two to one against USA!");
   });
 
-  it("phrases a level score as 'all'", () => {
-    expect(line({ team: "FRA", teamName: "France", homeScore: 2, awayScore: 2, minute: 70 })).toBe(
-      "France has SCORED, levelling it at two all in the second half!",
+  it("reads the away team taking the lead", () => {
+    expect(leadLine({ team: "USA", teamName: "USA", homeScore: 1, awayScore: 2 })).toBe(
+      "USA score, pulling ahead two to one against Tunisia!",
     );
   });
 
-  it("phrases the scoring team still trailing", () => {
-    // ARG pull one back to 1–2.
-    expect(line({ homeScore: 1, awayScore: 2, minute: 80 })).toBe(
-      "Argentina has SCORED, now two to one down in the second half!",
+  it("phrases an equalizer as levelling it", () => {
+    // USA peg it back to 2–2.
+    expect(leadLine({ team: "USA", teamName: "USA", homeScore: 2, awayScore: 2 })).toBe(
+      "USA score, levelling it at two all against Tunisia!",
     );
   });
+});
 
-  it("reads the away team's score correctly", () => {
-    expect(line({ team: "FRA", teamName: "France", homeScore: 1, awayScore: 2, minute: 92 })).toBe(
-      "France has SCORED, putting them up two to one in stoppage time!",
-    );
+describe("resultLine", () => {
+  it("names the winner, loser and scoreline", () => {
+    expect(ftLine({})).toBe("Tunisia beat USA two to one!");
   });
 
-  it("omits the period when the minute is unknown", () => {
-    expect(line({ minute: null })).toBe("Argentina has SCORED, putting them up two to nil!");
+  it("reads an away win", () => {
+    expect(ftLine({ homeScore: 0, awayScore: 3 })).toBe("USA beat Tunisia three to nil!");
+  });
+
+  it("phrases a score draw as 'all'", () => {
+    expect(ftLine({ homeScore: 1, awayScore: 1 })).toBe("Tunisia and USA draw one all!");
+  });
+
+  it("phrases a goalless draw", () => {
+    expect(ftLine({ homeScore: 0, awayScore: 0 })).toBe(
+      "Tunisia and USA play out a goalless draw!",
+    );
   });
 });

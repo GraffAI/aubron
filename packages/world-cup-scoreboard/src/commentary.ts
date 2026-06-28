@@ -1,12 +1,19 @@
 /**
- * Turn a goal into a line of commentary for the announcer voice, e.g.
- *   "Argentina has SCORED, putting them up two to nil in the first half!"
+ * Turn match events into announcer lines for the ElevenLabs voice. Two triggers,
+ * deliberately *not* every goal:
  *
- * Pure and deterministic so it can be unit-tested; the ElevenLabs call lives
- * elsewhere. Numbers are spelled out (with British "nil") because they read more
- * naturally through TTS than digits.
+ *   - a **lead change** (the team in front changes — taken, overtaken or pegged
+ *     back to level): "Tunisia scores, pulling ahead two to one against the
+ *     United States!"
+ *   - a **result** at full time, win or draw: "Tunisia beat the United States
+ *     two to one!"
+ *
+ * No "GOAL!" here — the horn already carries that. Each line names both teams and
+ * the scoreline. Pure and deterministic so it can be unit-tested; the ElevenLabs
+ * call lives elsewhere. Numbers are spelled out (with British "nil") because they
+ * read more naturally through TTS than digits.
  */
-import type { GoalAnnouncement } from "./engine.js";
+import type { GoalAnnouncement, MatchResult } from "./engine.js";
 
 const WORDS = [
   "nil",
@@ -29,25 +36,31 @@ function word(n: number): string {
   return WORDS[n] ?? String(n);
 }
 
-/** Where in the match the goal landed, as a trailing clause (or ""). */
-function periodPhrase(minute: number | null): string {
-  if (minute == null) return "";
-  if (minute <= 45) return " in the first half";
-  if (minute <= 90) return " in the second half";
-  return " in stoppage time";
-}
-
-/** The scoreline clause from the scoring team's perspective. */
-function statePhrase(scoring: number, other: number): string {
-  if (scoring > other) return `putting them up ${word(scoring)} to ${word(other)}`;
-  if (scoring === other) return `levelling it at ${word(scoring)} all`;
-  return `now ${word(other)} to ${word(scoring)} down`;
-}
-
-/** Build the announcer line for a freshly-scored goal. */
-export function announcementLine(a: GoalAnnouncement): string {
+/**
+ * The line for a goal that changed who's leading. From the scoring team's view:
+ * either they've gone ahead/overtaken, or they've levelled it.
+ */
+export function leadChangeLine(a: GoalAnnouncement): string {
   const scoredHome = a.team === a.home;
   const scoring = scoredHome ? a.homeScore : a.awayScore;
   const other = scoredHome ? a.awayScore : a.homeScore;
-  return `${a.teamName} has SCORED, ${statePhrase(scoring, other)}${periodPhrase(a.minute)}!`;
+  const opponent = scoredHome ? a.awayName : a.homeName;
+  if (scoring > other) {
+    return `${a.teamName} score, pulling ahead ${word(scoring)} to ${word(other)} against ${opponent}!`;
+  }
+  return `${a.teamName} score, levelling it at ${word(scoring)} all against ${opponent}!`;
+}
+
+/** The full-time result line — a win or a draw, naming both teams. */
+export function resultLine(r: MatchResult): string {
+  if (r.homeScore === r.awayScore) {
+    if (r.homeScore === 0) return `${r.homeName} and ${r.awayName} play out a goalless draw!`;
+    return `${r.homeName} and ${r.awayName} draw ${word(r.homeScore)} all!`;
+  }
+  const homeWon = r.homeScore > r.awayScore;
+  const winner = homeWon ? r.homeName : r.awayName;
+  const loser = homeWon ? r.awayName : r.homeName;
+  const w = homeWon ? r.homeScore : r.awayScore;
+  const l = homeWon ? r.awayScore : r.homeScore;
+  return `${winner} beat ${loser} ${word(w)} to ${word(l)}!`;
 }

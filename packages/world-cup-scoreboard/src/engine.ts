@@ -28,7 +28,11 @@ export interface GoalEvent {
 /**
  * The payload handed to the `onGoal` hook when a celebration starts on screen —
  * enough for an external system (e.g. a Home Assistant webhook) to react, like
- * casting a "GOAL!" chime to a Nest Hub. Scores are the post-goal scoreline.
+ * casting a goal horn to a Nest Hub. Scores are the post-goal scoreline.
+ *
+ * `leadChange` flags the goals that also moved the lead (taken, overtaken or
+ * pegged back to level) — the only ones the announcer voice narrates; every goal
+ * still gets the horn.
  */
 export interface GoalAnnouncement {
   competition: string;
@@ -38,14 +42,46 @@ export interface GoalAnnouncement {
   teamName: string;
   home: string;
   away: string;
+  /** Both teams' display names, so a spoken line can name the opponent. */
+  homeName: string;
+  awayName: string;
   homeScore: number;
   awayScore: number;
   /** Match minute when the goal landed, if known. */
   minute: number | null;
+  /** Did this goal change who's leading (a new leader, or back to level)? */
+  leadChange: boolean;
+}
+
+/**
+ * The payload handed to the `onMatchEnd` hook at full time — enough to narrate
+ * the result (a win or a draw). Scores are the final scoreline.
+ */
+export interface MatchResult {
+  competition: string;
+  matchId: string;
+  home: string;
+  away: string;
+  homeName: string;
+  awayName: string;
+  homeScore: number;
+  awayScore: number;
+}
+
+/** Who's ahead in a scoreline, from the home team's point of view. */
+type Leader = "home" | "away" | "level";
+
+function leader(home: number, away: number): Leader {
+  return home > away ? "home" : away > home ? "away" : "level";
 }
 
 /** Build the `onGoal` payload from a freshly-scored match. */
-export function goalAnnouncement(m: Match, team: Team, competition: string): GoalAnnouncement {
+export function goalAnnouncement(
+  m: Match,
+  team: Team,
+  competition: string,
+  leadChange: boolean,
+): GoalAnnouncement {
   return {
     competition,
     matchId: m.id,
@@ -53,9 +89,26 @@ export function goalAnnouncement(m: Match, team: Team, competition: string): Goa
     teamName: team.name,
     home: m.home.team.code,
     away: m.away.team.code,
+    homeName: m.home.team.name,
+    awayName: m.away.team.name,
     homeScore: m.home.score,
     awayScore: m.away.score,
     minute: m.minute ?? null,
+    leadChange,
+  };
+}
+
+/** Build the `onMatchEnd` payload from a finished match. */
+export function matchResult(m: Match, competition: string): MatchResult {
+  return {
+    competition,
+    matchId: m.id,
+    home: m.home.team.code,
+    away: m.away.team.code,
+    homeName: m.home.team.name,
+    awayName: m.away.team.name,
+    homeScore: m.home.score,
+    awayScore: m.away.score,
   };
 }
 
@@ -161,6 +214,22 @@ export function detectGoal(prev: Match | undefined, next: Match): GoalEvent | nu
   return null;
 }
 
+/**
+ * Did the team in front change between two views of the same match? True when a
+ * lead is taken, overtaken, or pegged back to level — the goals the announcer
+ * voice narrates (vs. an extending-the-lead goal, which only gets the horn).
+ */
+export function leadChanged(prev: Match | undefined, next: Match): boolean {
+  if (!prev || prev.id !== next.id) return false;
+  return leader(prev.home.score, prev.away.score) !== leader(next.home.score, next.away.score);
+}
+
+/** Detect the moment a match reaches full time (a fresh transition to finished). */
+export function detectFinish(prev: Match | undefined, next: Match): boolean {
+  if (!prev || prev.id !== next.id) return false;
+  return prev.status !== "finished" && next.status === "finished";
+}
+
 export interface EngineHooks {
   /** Called with each rendered frame; default streams it over DDP. */
   onFrame?: (canvas: Canvas) => void;
@@ -170,6 +239,11 @@ export interface EngineHooks {
    * Fire-and-forget: it must not throw or block the render loop.
    */
   onGoal?: (a: GoalAnnouncement) => void;
+  /**
+   * Called once when a match reaches full time, for the spoken result line.
+   * Fired at poll time (results have no on-screen celebration). Fire-and-forget.
+   */
+  onMatchEnd?: (r: MatchResult) => void;
   log?: (msg: string) => void;
 }
 
@@ -182,6 +256,7 @@ export class Engine {
   private readonly log: (msg: string) => void;
   private readonly onFrame?: (canvas: Canvas) => void;
   private readonly onGoal?: (a: GoalAnnouncement) => void;
+  private readonly onMatchEnd?: (r: MatchResult) => void;
 
   private matches: Match[] = [];
   /** Matches currently rotated through (all live, or a single fallback pick). */
@@ -214,6 +289,7 @@ export class Engine {
         : new DdpSender({ host: cfg.wledHost, port: cfg.wledPort });
     this.onFrame = hooks.onFrame;
     this.onGoal = hooks.onGoal;
+    this.onMatchEnd = hooks.onMatchEnd;
     this.log = hooks.log ?? (() => {});
   }
 
@@ -239,17 +315,25 @@ export class Engine {
       // Watch every match for a score change — a goal anywhere should grab the
       // display, even if we're currently showing a different game.
       for (const m of matches) {
-        const goal = isActive(m.status) ? detectGoal(this.prevByMatch.get(m.id), m) : null;
+        const prev = this.prevByMatch.get(m.id);
+        const goal = isActive(m.status) ? detectGoal(prev, m) : null;
         if (goal) {
+          const lead = leadChanged(prev, m);
           // Queue it — render() plays celebrations one after another.
           this.goalQueue.push({
             team: goal.team,
             matchId: m.id,
-            announce: goalAnnouncement(m, goal.team, this.cfg.competition),
+            announce: goalAnnouncement(m, goal.team, this.cfg.competition, lead),
           });
           this.log(
-            `GOAL! ${goal.team.code} (${m.home.team.code} ${m.home.score}-${m.away.score} ${m.away.team.code})`,
+            `GOAL! ${goal.team.code} (${m.home.team.code} ${m.home.score}-${m.away.score} ${m.away.team.code})${lead ? " [lead change]" : ""}`,
           );
+        }
+        // Full time → announce the result (win or draw). No celebration, so fire
+        // it straight away rather than queueing behind the goal display.
+        if (detectFinish(prev, m)) {
+          this.log(`FT ${m.home.team.code} ${m.home.score}-${m.away.score} ${m.away.team.code}`);
+          this.onMatchEnd?.(matchResult(m, this.cfg.competition));
         }
         // Re-anchor the ticking clock whenever the API's minute advances.
         if (m.status === "live" && m.minute != null) {
