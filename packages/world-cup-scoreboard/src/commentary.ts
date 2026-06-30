@@ -51,8 +51,18 @@ export function leadChangeLine(a: GoalAnnouncement): string {
   return `${a.teamName} score, levelling it at ${word(scoring)} all against ${opponent}!`;
 }
 
-/** The full-time result line — a win or a draw, naming both teams. */
+/** The full-time result line — a win, a draw, or a shootout, naming both teams. */
 export function resultLine(r: MatchResult): string {
+  // Decided on penalties: the scoreline is level, so name the winner by spot
+  // kicks rather than calling an eliminated team a draw.
+  if (r.pens) {
+    const homeWon = r.pens.home > r.pens.away;
+    const winner = homeWon ? r.homeName : r.awayName;
+    const loser = homeWon ? r.awayName : r.homeName;
+    const w = homeWon ? r.pens.home : r.pens.away;
+    const l = homeWon ? r.pens.away : r.pens.home;
+    return `${winner} beat ${loser} ${word(w)}-${word(l)} on penalties!`;
+  }
   if (r.homeScore === r.awayScore) {
     if (r.homeScore === 0) return `${r.homeName} and ${r.awayName} play out a goalless draw!`;
     return `${r.homeName} and ${r.awayName} draw ${word(r.homeScore)} all!`;

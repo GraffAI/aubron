@@ -57,4 +57,28 @@ describe("scoreboard", () => {
     drawScoreboard(c, m);
     expect(lit(c)).toBeGreaterThan(200);
   });
+
+  it("draws green/red shootout dots and a gold winner underline", () => {
+    const c = new Canvas(30, 32);
+    const m: Match = {
+      id: "1",
+      status: "finished",
+      home: { team: resolveTeam({ code: "GER", name: "Germany" }), score: 1 },
+      away: { team: resolveTeam({ code: "PAR", name: "Paraguay" }), score: 1 },
+      shootout: {
+        home: 1,
+        away: 2,
+        homeKicks: [false, true], // miss (red), score (green)
+        awayKicks: [true, true],
+      },
+    };
+    drawScoreboard(c, m);
+
+    // Home row dots sit at y=6 (rowH 12 → centre 6), x = 15 + i*3. First kick was
+    // a miss (red), second a score (green).
+    const miss = c.get(15, 6);
+    const score = c.get(18, 6);
+    expect(miss[0]).toBeGreaterThan(miss[1]); // red dominates
+    expect(score[1]).toBeGreaterThan(score[0]); // green dominates
+  });
 });
