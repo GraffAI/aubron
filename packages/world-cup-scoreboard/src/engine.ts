@@ -66,6 +66,8 @@ export interface MatchResult {
   awayName: string;
   homeScore: number;
   awayScore: number;
+  /** Penalty-shootout tally when the tie was decided on spot kicks, else null. */
+  pens: { home: number; away: number } | null;
 }
 
 /** Who's ahead in a scoreline, from the home team's point of view. */
@@ -109,6 +111,7 @@ export function matchResult(m: Match, competition: string): MatchResult {
     awayName: m.away.team.name,
     homeScore: m.home.score,
     awayScore: m.away.score,
+    pens: m.shootout ? { home: m.shootout.home, away: m.shootout.away } : null,
   };
 }
 

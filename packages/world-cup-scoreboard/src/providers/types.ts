@@ -3,7 +3,7 @@
  * model. Implementations live alongside this file; the engine only ever sees
  * `Match[]` and never provider-specific JSON.
  */
-import type { Match, MatchStatus } from "../model.js";
+import type { Match, MatchStatus, Shootout } from "../model.js";
 import { resolveTeam } from "../teams.js";
 
 export interface Provider {
@@ -26,6 +26,7 @@ export function buildMatch(input: {
   stage?: string;
   home: { code?: string; name: string; score: number };
   away: { code?: string; name: string; score: number };
+  shootout?: Shootout;
 }): Match {
   return {
     id: input.id,
@@ -36,6 +37,7 @@ export function buildMatch(input: {
     stage: input.stage,
     home: { team: resolveTeam(input.home), score: input.home.score },
     away: { team: resolveTeam(input.away), score: input.away.score },
+    shootout: input.shootout,
   };
 }
 

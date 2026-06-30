@@ -11,6 +11,22 @@ function stubFetch(payload: unknown): void {
   );
 }
 
+/** Stub fetch with a per-URL response, for providers that hit more than one endpoint. */
+function stubFetchByUrl(routes: Array<{ match: string; payload: unknown }>): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      const route = routes.find((r) => url.includes(r.match));
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => route?.payload ?? {},
+      };
+    }),
+  );
+}
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe("footballDataProvider", () => {
@@ -65,6 +81,65 @@ describe("apiFootballProvider", () => {
     expect(matches[0]).toMatchObject({ status: "live", minute: 23, stage: "GROUP" });
     expect(matches[0]!.home.team.code).toBe("ENG");
     expect(matches[0]!.away.score).toBe(1);
+  });
+
+  it("decodes a penalty shootout from the events feed into ordered kicks", async () => {
+    stubFetchByUrl([
+      {
+        match: "/fixtures?",
+        payload: {
+          response: [
+            {
+              fixture: { id: 1565176, date: "2026-06-29T19:00:00+00:00", status: { short: "PEN" } },
+              league: { round: "Round of 32" },
+              teams: { home: { name: "Germany" }, away: { name: "Paraguay" } },
+              goals: { home: 1, away: 1 },
+              score: { penalty: { home: 3, away: 4 } },
+            },
+          ],
+        },
+      },
+      {
+        match: "/fixtures/events?",
+        payload: {
+          response: [
+            {
+              type: "Goal",
+              detail: "Missed Penalty",
+              comments: "Penalty Shootout",
+              team: { name: "Germany" },
+            },
+            {
+              type: "Goal",
+              detail: "Penalty",
+              comments: "Penalty Shootout",
+              team: { name: "Paraguay" },
+            },
+            {
+              type: "Goal",
+              detail: "Penalty",
+              comments: "Penalty Shootout",
+              team: { name: "Germany" },
+            },
+            {
+              type: "Goal",
+              detail: "Penalty",
+              comments: "Penalty Shootout",
+              team: { name: "Paraguay" },
+            },
+            // A non-shootout goal earlier in the match must be ignored.
+            { type: "Goal", detail: "Normal Goal", comments: null, team: { name: "Germany" } },
+          ],
+        },
+      },
+    ]);
+    const matches = await apiFootballProvider("key").fetchMatches();
+    const so = matches[0]!.shootout!;
+    expect(so).toBeDefined();
+    expect(so.homeKicks).toEqual([false, true]); // miss then score
+    expect(so.awayKicks).toEqual([true, true]);
+    expect(so.home).toBe(1);
+    expect(so.away).toBe(2);
   });
 });
 

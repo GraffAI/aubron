@@ -29,6 +29,7 @@ const result: MatchResult = {
   awayName: "USA",
   homeScore: 2,
   awayScore: 1,
+  pens: null,
 };
 
 const ftLine = (over: Partial<MatchResult>): string => resultLine({ ...result, ...over });
@@ -68,6 +69,13 @@ describe("resultLine", () => {
   it("phrases a goalless draw", () => {
     expect(ftLine({ homeScore: 0, awayScore: 0 })).toBe(
       "Tunisia and USA play out a goalless draw!",
+    );
+  });
+
+  it("names the shootout winner instead of calling a knockout a draw", () => {
+    // Level at 1–1, decided 4–3 on penalties for the away side.
+    expect(ftLine({ homeScore: 1, awayScore: 1, pens: { home: 3, away: 4 } })).toBe(
+      "USA beat Tunisia four-three on penalties!",
     );
   });
 });
