@@ -17,6 +17,7 @@
   },
   "files": [
     "dist",
+    "assets",
     "examples"
   ],
   "scripts": {
@@ -24,13 +25,15 @@
     "dev": "tsup --watch",
     "test": "vitest run",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "gen:flags": "tsx scripts/genflags.ts"
   },
   "dependencies": {
     "pngjs": "^7.0.0"
   },
   "devDependencies": {
     "@aubron/eslint-config": "workspace:*",
+    "@resvg/resvg-js": "^2.6.2",
     "@aubron/prettier-config": "workspace:*",
     "@aubron/tsconfig": "workspace:*",
     "@aubron/tsup-config": "workspace:*",
@@ -38,6 +41,7 @@
     "@types/pngjs": "^6.0.5",
     "eslint": "catalog:",
     "tsup": "catalog:",
+    "tsx": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },

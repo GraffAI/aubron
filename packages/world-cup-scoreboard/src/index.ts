@@ -361,6 +361,7 @@ function cmdFlags(flags: ConfigFlags & { out?: string }): void {
   const codes = [...SPRITE_CODES].sort();
   const sizes: Array<{ name: string; w: number; h: number; scale: number }> = [
     { name: "12x8", w: 12, h: 8, scale: 10 },
+    { name: "18x12", w: 18, h: 12, scale: 8 },
     { name: "24x16", w: 24, h: 16, scale: 6 },
     { name: "48x32", w: 48, h: 32, scale: 3 },
   ];
@@ -376,7 +377,7 @@ function cmdFlags(flags: ConfigFlags & { out?: string }): void {
       toPng(tile(cells, 8, 2), { scale, gamma: cfg.gamma }),
     );
   }
-  log(`wrote flags-{12x8,24x16,48x32}.png to ${out}/ (${codes.length} flags each)`);
+  log(`wrote flags-{12x8,18x12,24x16,48x32}.png to ${out}/ (${codes.length} flags each)`);
 }
 
 async function cmdCalibrate(flags: ConfigFlags & { pattern?: string }): Promise<void> {
