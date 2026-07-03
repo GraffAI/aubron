@@ -23,9 +23,10 @@ off-device — nothing needs to run on the ESP32.
 - **Every live match, rotated.** The group stage runs several games at once, so
   the engine cycles through all of them (and upcoming-soon / just-finished ones)
   every 15 s. A goal in _any_ match interrupts to its celebration, then resumes.
-- **Real pixel-art flags.** Native-resolution sprites for all 48 nations (see
-  [Flags](#flags)), with a hand-coded vector fallback so it still runs without
-  the art pack.
+- **Real flags, LED-native.** Sprites generated from the official Wikimedia
+  Commons SVGs and downscaled with a palette-snapped salience vote (see
+  [Flags](#flags)) — flat colours only, so nothing washes out on a sparse
+  matrix. A hand-coded vector fallback covers unmapped nations.
 - **A live clock**, not just the minute — `67:14` ticking, and `45+2` / `90+3`
   in stoppage time (from the API's `extra` field).
 - **Gamma-corrected colour** so flags don't wash out on bright LEDs.
@@ -50,13 +51,10 @@ pnpm add @aubron/world-cup-scoreboard      # or run from this repo
 # 1. See the scenes without any hardware (writes ./preview/storyboard.png):
 worldcup preview
 
-# 2. (Optional) drop in real flag art — see "Flags" below:
-./deploy/install-flags.sh ~/Downloads/Flag_Assets_by_ReffPixels_v2.zip
-
-# 3. Dry-run a scripted fake match on the real panel (no API key needed):
+# 2. Dry-run a scripted fake match on the real panel (no API key needed):
 worldcup demo --wled 192.168.1.42
 
-# 4. Go live:
+# 3. Go live:
 worldcup run --wled 192.168.1.42 --provider api-football --key $WC_API_KEY
 ```
 
@@ -87,21 +85,29 @@ strands, serpentine**). Two ways to get the mapping right:
 
 ## Flags
 
-Flags are real pixel-art sprites from the **ReffPixels "Flag Assets" pack**
-(CC-BY 4.0), at the panel's native sizes — **12×8** on the scoreboard/cards and
-**24×16** for the GOAL hero (the 18×12 scoreboard flag is the 24×16 scaled). The
-pack's outline is bled away for a clean full-bleed flag, and output runs through
-a gamma curve so the colours stay saturated on LEDs.
+Flags are sprites generated from the **official Wikimedia Commons SVGs**
+(public domain, so the PNGs are committed) at every size the scenes draw:
+**12×8** (kickoff cards, shootout rows), **18×12** (scoreboard), **24×16**
+(GOAL hero, schedule) and **48×32** (headroom for bigger panels).
 
-The art is **not committed** (the licence forbids redistribution), so populate
-it locally from your own copy of the pack:
+Naive downscaling is what makes flags unreadable on a sparse matrix — area
+averaging melts Canada's maple leaf into a pink smear, and shaded icon-pack
+art turns into random dim pixels. `scripts/genflags.ts` avoids both by
+construction:
 
-```sh
-./deploy/install-flags.sh <path-to-pack-or.zip>   # → packages/.../assets/flags/
-```
+1. Rasterise the SVG large, then recover the flag's true **flat palette** from
+   a histogram (flags are flat-colour art; anti-aliasing noise merges away).
+   Every output pixel snaps to this palette — no shading can survive.
+2. Each LED cell holds a **salience-weighted vote**: a palette colour wins by
+   coverage, boosted by how rare it is in the cell's neighbourhood. That's
+   what keeps the maple leaf (locally-rare red inside the white pale), the
+   stars and the crescents, while plain bands stay plain.
+3. Near-black lifts to `#2C2C2C` so black bands read against unlit LEDs.
 
-Without the pack, every flag falls back to a hand-coded vector design
-(`flags/registry.ts`), so the app always renders — just less prettily.
+Regenerate any time with `pnpm gen:flags` (or `pnpm gen:flags CAN USA` for a
+subset; downloads are cached in `assets/flags/.svg-cache/`). Nations without a
+generated sprite fall back to a hand-coded vector design
+(`flags/registry.ts`), so the app always renders.
 
 ## Data providers
 
