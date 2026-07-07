@@ -53,10 +53,13 @@ interface LineGlide {
 type Glide = TrackGlide | LineGlide;
 
 // Last confirmed fix per trip, so we can measure how fast it's actually moving.
-interface Motion {
+export interface Motion {
   lon: number;
   lat: number;
+  /** Wall time we observed this fix (fallback clock when the feed omits fixTime). */
   time: number;
+  /** Feed timestamp of the fix (lastLocationUpdateTime) — the accurate dt basis. */
+  fixTime?: number;
   speed: number; // m/s, from the last two distinct fixes
   heading: number; // degrees, direction of travel (NaN until we've seen movement)
 }
@@ -69,11 +72,17 @@ const SNAP_METERS = 2500;
 const MOVING_MIN_MPS = 2;
 // A new fix has to move this far to count as motion (filters GPS jitter at rest).
 const FIX_EPS_METERS = 15;
-// How far ahead of the last fix we predict. ~one median update interval — enough
-// to close the staleness gap, short enough that a stalled feed can't run a dot off.
+// How far ahead of the last fix we predict. Measured against the live feed
+// (2026-07): fixes refresh every ~20s median (p90 35s) and are already ~16s old
+// when first observed; a 15s horizon nearly halved the median draw error vs raw
+// fixes (213m → 119m) without letting a stalled feed run a dot off the end.
 const HORIZON_SEC = 15;
 // Absolute ceiling on a single prediction, regardless of speed.
 const MAX_PREDICT_METERS = 1200;
+// Faster than any train here (Sounder tops out ~36 m/s). A measured speed above
+// this is a feed glitch or a trip re-seat teleport (observed p99 was 78 m/s on
+// exactly such glitches) — re-seed motion instead of predicting with poison.
+const MAX_SPEED_MPS = 45;
 
 function metersBetween(aLon: number, aLat: number, bLon: number, bLat: number): number {
   const dLat = (bLat - aLat) * 111_000;
@@ -88,7 +97,7 @@ function metersBetween(aLon: number, aLat: number, bLon: number, bLat: number): 
  * but capped by its ETA to the next stop and kept short of that stop, so it paces
  * toward arrival (variable speed) and never fakes a departure.
  */
-function predictMeters(v: Vehicle, m: Motion | undefined): number {
+export function predictMeters(v: Vehicle, m: Motion | undefined): number {
   if (!v.hasGps || !m || Number.isNaN(m.heading) || m.speed < MOVING_MIN_MPS) return 0;
   let pace = m.speed;
   let cap = MAX_PREDICT_METERS;
@@ -152,23 +161,47 @@ export function useSmoothPositions(
       }
 
       // Track the train's real speed/heading from successive distinct fixes.
+      // The feed's fixTime (lastLocationUpdateTime) tells a NEW fix apart from
+      // the same one re-served — crucial for dwell: a fresh fix that hasn't
+      // moved means the train is MEASURED stationary (speed 0), where treating
+      // it as "no news" would keep predicting it forward at its old approach
+      // speed and drift it off the platform for the whole stop.
       const m = motion.current.get(v.id);
       let mNow: Motion;
-      if (m && metersBetween(m.lon, m.lat, v.lon, v.lat) > FIX_EPS_METERS) {
-        const dt = Math.max(1, (wall - m.time) / 1000);
-        mNow = {
-          lon: v.lon,
-          lat: v.lat,
-          time: wall,
-          speed: metersBetween(m.lon, m.lat, v.lon, v.lat) / dt,
-          heading: bearing(m.lon, m.lat, v.lon, v.lat),
-        };
+      if (!m) {
+        mNow = { lon: v.lon, lat: v.lat, time: wall, fixTime: v.fixTime, speed: 0, heading: NaN };
         motion.current.set(v.id, mNow);
-      } else if (m) {
-        mNow = m; // same fix repeated — keep the last measured speed/heading
       } else {
-        mNow = { lon: v.lon, lat: v.lat, time: wall, speed: 0, heading: NaN };
-        motion.current.set(v.id, mNow);
+        const moved = metersBetween(m.lon, m.lat, v.lon, v.lat);
+        const newFix =
+          v.fixTime != null && m.fixTime != null ? v.fixTime > m.fixTime : moved > FIX_EPS_METERS;
+        if (!newFix) {
+          mNow = m; // same fix re-served — no new information
+        } else {
+          // dt between the fixes themselves when the feed stamps them (poll-time
+          // gaps overstate dt by up to a poll period and dilute the speed).
+          const dt = Math.max(
+            1,
+            (v.fixTime != null && m.fixTime != null ? v.fixTime - m.fixTime : wall - m.time) / 1000,
+          );
+          const speed = moved / dt;
+          mNow =
+            speed > MAX_SPEED_MPS
+              ? // Teleport/glitch: position is untrustworthy as a motion basis —
+                // re-seed and wait for the next clean pair before predicting.
+                { lon: v.lon, lat: v.lat, time: wall, fixTime: v.fixTime, speed: 0, heading: NaN }
+              : {
+                  lon: v.lon,
+                  lat: v.lat,
+                  time: wall,
+                  fixTime: v.fixTime,
+                  speed: moved > FIX_EPS_METERS ? speed : 0,
+                  // A stationary fix keeps the approach heading (for the icon);
+                  // speed 0 already gates any forward prediction.
+                  heading: moved > FIX_EPS_METERS ? bearing(m.lon, m.lat, v.lon, v.lat) : m.heading,
+                };
+          motion.current.set(v.id, mNow);
+        }
       }
 
       const jump = p ? metersBetween(curLon, curLat, v.lon, v.lat) : Infinity;

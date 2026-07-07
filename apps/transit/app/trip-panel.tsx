@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from "react";
 
-import { LINE_COLORS, type RGBA } from "./lib/theme";
+import { colorFor, type RGBA } from "./lib/theme";
 import type { TripDetail, Vehicle } from "./lib/transit";
 
 const rgba = ([r, g, b, a]: RGBA) => `rgba(${r},${g},${b},${(a ?? 255) / 255})`;
-const FALLBACK: RGBA = [150, 170, 190, 220];
 
-const eta = (min: number): string => (min <= 0 ? "due" : `${min} min`);
+// Far-out ETAs are schedule + a single live deviation, and the measured
+// deviation drifts ~45s (p90 2min) over five minutes — mark them approximate.
+const eta = (min: number): string => (min <= 0 ? "due" : min > 10 ? `~${min} min` : `${min} min`);
 
 const OCCUPANCY: Record<string, string> = {
   EMPTY: "Empty",
@@ -35,7 +36,7 @@ function occupancyLabel(v: Vehicle): string | null {
 export function TripPanel({ vehicle, onClose }: { vehicle: Vehicle; onClose: () => void }) {
   const [trip, setTrip] = useState<TripDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const color = LINE_COLORS[vehicle.shortName] ?? FALLBACK;
+  const color = colorFor(vehicle.shortName, vehicle.color);
   const css = rgba(color);
 
   useEffect(() => {
@@ -66,8 +67,9 @@ export function TripPanel({ vehicle, onClose }: { vehicle: Vehicle; onClose: () 
   const status = onTime ? "on time" : dev > 0 ? `${dev} min late` : `${-dev} min early`;
 
   return (
-    <aside className="absolute right-0 top-0 flex h-full w-[330px] max-w-[86vw] flex-col border-l border-white/10 bg-black/70 backdrop-blur-md">
-      <header className="flex items-start gap-3 border-b border-white/10 p-5">
+    // Phone: a bottom sheet the map stays visible above. ≥sm: the right rail.
+    <aside className="absolute inset-x-0 bottom-0 flex max-h-[62dvh] w-full flex-col rounded-t-2xl border-t border-white/10 bg-black/80 pb-[env(safe-area-inset-bottom)] backdrop-blur-md sm:inset-x-auto sm:right-0 sm:top-0 sm:h-full sm:max-h-none sm:w-[330px] sm:max-w-[86vw] sm:rounded-none sm:border-l sm:border-t-0 sm:bg-black/70 sm:pb-0">
+      <header className="flex items-start gap-3 border-b border-white/10 p-4 sm:p-5">
         <span
           className="mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full"
           style={{ background: css, boxShadow: `0 0 10px ${css}` }}
@@ -90,7 +92,7 @@ export function TripPanel({ vehicle, onClose }: { vehicle: Vehicle; onClose: () 
         <button
           type="button"
           onClick={onClose}
-          className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/40 hover:bg-white/10 hover:text-white/80"
+          className="-m-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-white/40 hover:bg-white/10 hover:text-white/80"
           aria-label="Close"
         >
           ✕

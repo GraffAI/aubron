@@ -6,13 +6,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { LINE_COLORS, type RGBA } from "./lib/theme";
+import { colorFor, LINE_COLORS, type RGBA } from "./lib/theme";
 import type { RouteInfo } from "./lib/transit";
 
-const FALLBACK: RGBA = [150, 170, 190, 220];
 const rgba = ([r, g, b, a]: RGBA) => `rgba(${r},${g},${b},${(a ?? 255) / 255})`;
+// Buses stay the uniform bus gray (matching their map markers); rail lines get
+// their brand color, falling back to the agency's GTFS route_color.
 const colorOf = (r: RouteInfo): RGBA =>
-  LINE_COLORS[r.shortName] ?? (r.mode === "bus" ? LINE_COLORS.bus! : FALLBACK);
+  r.mode === "bus" ? LINE_COLORS.bus! : colorFor(r.shortName, r.color);
 
 const label = (r: RouteInfo): string => {
   // Rail short names already read like "1 Line"; buses are bare numbers.
@@ -43,14 +44,16 @@ export function LineSelector({ rail, buses, selectedId, onSelect, counts }: Prop
   useEffect(() => {
     if (!open) return;
     inputRef.current?.focus();
-    const onDoc = (e: MouseEvent) => {
+    // pointerdown covers touch as well as mouse (mousedown arrives late — or not
+    // at all — on touch, leaving the dropdown stuck open on phones).
+    const onDoc = (e: PointerEvent) => {
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("pointerdown", onDoc);
     document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("pointerdown", onDoc);
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
@@ -101,15 +104,16 @@ export function LineSelector({ rail, buses, selectedId, onSelect, counts }: Prop
       {open && (
         <div className="absolute left-0 right-0 top-full z-10 mt-2 overflow-hidden rounded-lg border border-white/10 bg-black/80 backdrop-blur-xl">
           <div className="border-b border-white/10 p-2">
+            {/* 16px on touch screens — anything smaller makes iOS zoom the page on focus */}
             <input
               ref={inputRef}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search lines…"
-              className="w-full rounded-md bg-white/5 px-2.5 py-1.5 text-[13px] text-white/90 placeholder:text-white/30 focus:outline-none"
+              className="w-full rounded-md bg-white/5 px-2.5 py-1.5 text-base text-white/90 placeholder:text-white/30 focus:outline-none sm:text-[13px]"
             />
           </div>
-          <div className="max-h-[50vh] overflow-y-auto py-1">
+          <div className="max-h-[50dvh] overflow-y-auto py-1">
             <Row
               dot="rgba(255,255,255,0.25)"
               name="Everything"

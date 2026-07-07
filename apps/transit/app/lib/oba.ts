@@ -32,7 +32,13 @@ interface ObaRoute {
   shortName?: string;
   longName?: string;
   type: number;
+  /** GTFS route_color as "RRGGBB" ("" when unset). */
+  color?: string;
 }
+
+// Amtrak Cascades (which shares Sounder track and shows up in the same feed)
+// publishes an EMPTY shortName — `??` alone would let "" through to badges.
+const routeName = (r: ObaRoute): string => r.shortName || r.longName || r.id;
 
 interface ObaStop {
   id: string;
@@ -78,9 +84,10 @@ async function obaGet<T>(
 
 const toRouteInfo = (r: ObaRoute): RouteInfo => ({
   id: r.id,
-  shortName: r.shortName ?? r.id,
+  shortName: routeName(r),
   longName: r.longName ?? "",
   mode: modeFromType(r.type),
+  color: r.color || undefined,
 });
 
 /** Every Sound Transit route (cached a day); callers split rail from bus. */
@@ -209,11 +216,12 @@ async function loadRouteGeometry(
   }>(`stops-for-route/${routeId}`, { includePolylines: "true" }, 60 * 60 * 24);
 
   const route = data.references.routes.find((r) => r.id === routeId);
-  const shortName = route?.shortName ?? routeId;
+  const shortName = route ? routeName(route) : routeId;
+  const color = route?.color || undefined;
   const shapes: ShapeLine[] = [];
   for (const pl of data.entry.polylines ?? []) {
     const path = decodePolyline(pl.points);
-    if (path.length > 1) shapes.push({ routeId, shortName, path });
+    if (path.length > 1) shapes.push({ routeId, shortName, path, color });
   }
   const raw: DedupeStop[] = data.references.stops.map((s) => ({
     id: s.id,
@@ -292,7 +300,7 @@ interface ObaTripRef {
   tripHeadsign?: string;
 }
 
-interface TripsResponse {
+export interface TripsResponse {
   list: ObaTrip[];
   references: { trips: ObaTripRef[]; routes: ObaRoute[]; stops: ObaStop[] };
 }
@@ -339,8 +347,17 @@ function toVehicle(
   const s = trip.status;
   const dat = s?.distanceAlongTrip;
   const livePos = s?.position ?? s?.lastKnownLocation;
+  const updated = s?.lastLocationUpdateTime;
+  // A position with no lastLocationUpdateTime is NOT a fix: OBA interpolates a
+  // schedule position for trips with no realtime (measured: ~16% of trip rows,
+  // every one predicted:false + phase:"" — vehicles "parked" at terminals for
+  // runs that haven't started). Treating those as GPS drew fleets of fictional
+  // trains standing at the end of each line.
   const hasGps =
-    !!livePos && !(livePos.lat === 0 && livePos.lon === 0) && (dat == null || dat >= 0);
+    !!livePos &&
+    !(livePos.lat === 0 && livePos.lon === 0) &&
+    (dat == null || dat >= 0) &&
+    !!updated;
   const nextStop = s?.nextStop ? stops.get(s.nextStop) : undefined;
 
   let lon: number;
@@ -359,12 +376,11 @@ function toVehicle(
     lat = ghost.lat;
   }
 
-  const updated = s?.lastLocationUpdateTime;
   return {
     id: trip.tripId,
     tripId: trip.tripId,
     routeId: route.id,
-    shortName: route.shortName ?? route.id,
+    shortName: routeName(route),
     mode: modeFromType(route.type),
     lon,
     lat,
@@ -374,6 +390,8 @@ function toVehicle(
     occupancyCount: s?.occupancyCount,
     occupancyCapacity: s?.occupancyCapacity,
     gpsAgeSec: hasGps && updated ? Math.max(0, Math.round((now - updated) / 1000)) : undefined,
+    fixTime: hasGps && updated ? updated : undefined,
+    color: route.color || undefined,
     predicted: s?.predicted ?? false,
     headsign: headsign || route.longName || "",
     hasGps,
@@ -385,8 +403,31 @@ function toVehicle(
 }
 
 /**
- * Collect vehicles from a set of trips-for-route queries into a tripId-keyed map,
- * labelling each by its real route and keeping only routes that pass `keepRoute`.
+ * Map one trips-for-route response to Vehicles, labelling each trip by its real
+ * route and keeping only routes that pass `keepRoute`. Pure — also drives the
+ * replay recorder and the real-payload tests.
+ */
+export function vehiclesFromTrips(
+  data: TripsResponse,
+  keepRoute: (r: ObaRoute) => boolean,
+  now: number,
+): Vehicle[] {
+  const trips = new Map(data.references.trips.map((t) => [t.id, t]));
+  const routes = new Map(data.references.routes.map((r) => [r.id, r]));
+  const stops = new Map((data.references.stops ?? []).map((s) => [s.id, s]));
+  const out: Vehicle[] = [];
+  for (const trip of data.list) {
+    const ref = trips.get(trip.tripId);
+    const route = ref?.routeId ? routes.get(ref.routeId) : undefined;
+    if (!route || !keepRoute(route)) continue;
+    const v = toVehicle(trip, route, ref?.tripHeadsign ?? "", now, stops);
+    if (v) out.push(v);
+  }
+  return out;
+}
+
+/**
+ * Collect vehicles from a set of trips-for-route queries into a tripId-keyed map.
  * Deduping by tripId means a train returned under several route queries lands once.
  */
 async function collectVehicles(
@@ -406,17 +447,7 @@ async function collectVehicles(
         console.error(`trips-for-route ${routeId} failed`, err);
         return;
       }
-      const now = Date.now();
-      const trips = new Map(data.references.trips.map((t) => [t.id, t]));
-      const routes = new Map(data.references.routes.map((r) => [r.id, r]));
-      const stops = new Map((data.references.stops ?? []).map((s) => [s.id, s]));
-      for (const trip of data.list) {
-        const ref = trips.get(trip.tripId);
-        const route = ref?.routeId ? routes.get(ref.routeId) : undefined;
-        if (!route || !keepRoute(route)) continue;
-        const v = toVehicle(trip, route, ref?.tripHeadsign ?? "", now, stops);
-        if (v) byTrip.set(trip.tripId, v);
-      }
+      for (const v of vehiclesFromTrips(data, keepRoute, Date.now())) byTrip.set(v.tripId, v);
     }),
   );
   return byTrip;
@@ -462,9 +493,18 @@ interface ObaStopWithArrivals {
   references: { stops: ObaStop[]; routes: ObaRoute[] };
 }
 
+// A predicted arrival this far in the past is a feed glitch, not a late train.
+// Observed live: OBA sometimes emits a predictedArrivalTime clamped to the END
+// OF THE PREVIOUS SERVICE DAY (00:59:59) for a train that's physically pulling
+// in — 16 hours in the past. Legit lapsed predictions run a minute or two.
+const PREDICTION_STALE_MS = 15 * 60_000;
+
 function toStopArrival(a: ObaArrival, routes: Map<string, ObaRoute>, now: number): StopArrival {
+  const predictionSane = a.predictedArrivalTime > now - PREDICTION_STALE_MS;
   const arrival =
-    a.predicted && a.predictedArrivalTime ? a.predictedArrivalTime : a.scheduledArrivalTime;
+    a.predicted && a.predictedArrivalTime && predictionSane
+      ? a.predictedArrivalTime
+      : a.scheduledArrivalTime;
   const pos = a.tripStatus?.position ?? a.tripStatus?.lastKnownLocation;
   const route = routes.get(a.routeId);
   const live = pos && !(pos.lat === 0 && pos.lon === 0);
@@ -472,7 +512,7 @@ function toStopArrival(a: ObaArrival, routes: Map<string, ObaRoute>, now: number
   return {
     tripId: a.tripId,
     routeId: a.routeId,
-    shortName: a.routeShortName ?? route?.shortName ?? a.routeId,
+    shortName: a.routeShortName || (route ? routeName(route) : a.routeId),
     mode: route ? modeFromType(route.type) : "bus",
     headsign: a.tripHeadsign ?? route?.longName ?? "",
     arrival,
@@ -484,6 +524,7 @@ function toStopArrival(a: ObaArrival, routes: Map<string, ObaRoute>, now: number
     gpsAgeSec: live && updated ? Math.max(0, Math.round((now - updated) / 1000)) : undefined,
     vehicleLon: live ? pos!.lon : undefined,
     vehicleLat: live ? pos!.lat : undefined,
+    color: route?.color || undefined,
   };
 }
 
@@ -553,7 +594,15 @@ interface ObaTripDetails {
 // stopTimes use platform ids (40_N23-T2); references use the parent (40_N23).
 const stripPlatform = (id: string): string => id.replace(/-T\d+$/, "");
 
-/** Ordered upcoming stops + predicted ETAs for one trip. */
+/**
+ * Ordered upcoming stops + predicted ETAs for one trip.
+ *
+ * The ETA basis is schedule + the trip's single live scheduleDeviation — the
+ * best the feed offers (measured 2026-07: trip-details returns NO per-stop
+ * predictions on this server). The same measurement says deviation drifts
+ * ~45s median (p90 ~2min) over five minutes, so ETAs beyond ~10 minutes are
+ * soft; the UI labels those approximate.
+ */
 export async function getTripDetail(tripId: string): Promise<TripDetail> {
   const data = await obaGet<ObaTripDetails>(`trip-details/${encodeURIComponent(tripId)}`);
   const { entry, references } = data;

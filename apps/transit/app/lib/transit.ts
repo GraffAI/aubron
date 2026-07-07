@@ -8,6 +8,8 @@ export interface RouteInfo {
   shortName: string;
   longName: string;
   mode: Mode;
+  /** GTFS route_color as "RRGGBB", when the agency publishes one. */
+  color?: string;
 }
 
 /** One drawn segment of a route's shape, as [lon, lat] pairs for deck.gl. */
@@ -15,6 +17,8 @@ export interface ShapeLine {
   routeId: string;
   shortName: string;
   path: [number, number][];
+  /** GTFS route_color as "RRGGBB", when the agency publishes one. */
+  color?: string;
 }
 
 export interface StopInfo {
@@ -55,6 +59,8 @@ export interface SelectedLine {
   mode: Mode;
   shapes: ShapeLine[];
   stops: StopInfo[];
+  /** GTFS route_color as "RRGGBB", when the agency publishes one. */
+  color?: string;
 }
 
 /** A live vehicle position from the realtime feed. */
@@ -76,6 +82,14 @@ export interface Vehicle {
   occupancyCapacity?: number;
   /** Seconds since the last GPS fix (for fading stale vehicles). */
   gpsAgeSec?: number;
+  /**
+   * Epoch ms of the last GPS fix (OBA lastLocationUpdateTime). Lets the client
+   * measure speed over the real interval between fixes — the feed only refreshes
+   * every ~20s (measured median; p90 35s), so wall-clock poll gaps misstate dt.
+   */
+  fixTime?: number;
+  /** GTFS route_color as "RRGGBB", when the agency publishes one. */
+  color?: string;
   predicted: boolean;
   headsign: string;
   /** False for schedule-only "ghost" trains running with no live GPS fix. */
@@ -137,6 +151,8 @@ export interface StopArrival {
   /** Live vehicle position, when reported — lets the map frame it with the stop. */
   vehicleLon?: number;
   vehicleLat?: number;
+  /** GTFS route_color as "RRGGBB", when the agency publishes one. */
+  color?: string;
 }
 
 /** A selected stop's live board: name, position, and the next arrivals. */

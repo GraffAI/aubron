@@ -5,13 +5,11 @@
 // badge, the destination, and a big split-flap status (ARRIVED / ARRIVING /
 // DELAYED / "5 MIN"). The signage is the point.
 
-import { LINE_COLORS, type RGBA } from "./lib/theme";
+import { colorFor, type RGBA } from "./lib/theme";
 import { arrivalState, type StopArrival, type StopBoard } from "./lib/transit";
 import { SplitFlap } from "./split-flap";
 
-const FALLBACK: RGBA = [150, 170, 190, 220];
 const rgba = ([r, g, b, a]: RGBA) => `rgba(${r},${g},${b},${(a ?? 255) / 255})`;
-const colorOf = (shortName: string): RGBA => LINE_COLORS[shortName] ?? FALLBACK;
 
 // Late by more than this reads as "delayed" on the board, regardless of ETA.
 const DELAY_SEC = 180;
@@ -57,7 +55,7 @@ export function StationPanel({
   onPick?: (a: StopArrival) => void;
 }) {
   return (
-    <aside className="absolute bottom-0 left-0 right-0 mx-auto flex max-h-[60vh] w-full max-w-[560px] flex-col rounded-t-2xl border border-white/10 bg-black/80 backdrop-blur-xl sm:bottom-5 sm:left-5 sm:right-auto sm:max-h-[78vh] sm:w-[400px] sm:rounded-2xl">
+    <aside className="absolute bottom-0 left-0 right-0 mx-auto flex max-h-[60dvh] w-full max-w-[560px] flex-col rounded-t-2xl border border-white/10 bg-black/80 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl sm:bottom-5 sm:left-5 sm:right-auto sm:max-h-[78vh] sm:w-[400px] sm:rounded-2xl sm:pb-0">
       <header className="flex items-start gap-3 border-b border-white/10 p-4">
         <div className="min-w-0 flex-1">
           <div className="mb-1.5 text-[9px] uppercase tracking-[0.3em] text-cyan-300/50">
@@ -72,7 +70,7 @@ export function StationPanel({
         <button
           type="button"
           onClick={onClose}
-          className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/40 hover:bg-white/10 hover:text-white/80"
+          className="-m-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-white/40 hover:bg-white/10 hover:text-white/80"
           aria-label="Close"
         >
           ✕
@@ -87,7 +85,7 @@ export function StationPanel({
         ) : (
           <ul className="flex flex-col gap-1.5">
             {board?.arrivals.map((a, i) => {
-              const css = rgba(colorOf(a.shortName));
+              const css = rgba(colorFor(a.shortName, a.color));
               const sign = signage(a);
               return (
                 <li key={`${a.tripId}-${i}`}>
