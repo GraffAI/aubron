@@ -143,7 +143,7 @@ export function resolveConfig(flags: ConfigFlags = {}): Config {
     audioHost: process.env.WC_AUDIO_HOST,
     audioPort: envNum("WC_AUDIO_PORT", 8730),
     elevenLabsApiKey: process.env.WC_ELEVENLABS_API_KEY,
-    elevenLabsVoice: flags.voice ?? process.env.WC_ELEVENLABS_VOICE ?? "British Football Announcer",
+    elevenLabsVoice: flags.voice ?? process.env.WC_ELEVENLABS_VOICE ?? "Ethar",
     elevenLabsModel: process.env.WC_ELEVENLABS_MODEL ?? "eleven_v3",
     elevenLabsTimeoutMs: envNum("WC_ELEVENLABS_TIMEOUT_MS", 30_000),
     hassUrl: flags.hassUrl ?? process.env.WC_HASS_URL,
