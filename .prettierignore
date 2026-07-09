@@ -9,3 +9,6 @@ pnpm-lock.yaml
 # Template markdown uses __PLACEHOLDER__ tokens, which Prettier would rewrite as
 # bold (**PLACEHOLDER**). Keep templates verbatim so gen.ts can substitute them.
 scripts/templates/**/*.md
+
+# Machine-written runtime state for the ticket watcher (rewritten on each poll).
+tickets/state.json
