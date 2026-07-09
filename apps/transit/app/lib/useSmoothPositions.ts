@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { bearing, type TrackIndex } from "./track";
+import { bearing, type Cursor, type TrackIndex } from "./track";
 import type { Vehicle } from "./transit";
 
 // A glide either runs ALONG a route's track (rail, by meters on a shape) or, when
@@ -35,6 +35,14 @@ export interface Debug {
   /** Measured speed (m/s) and age of the fix (s). */
   speed: number;
   gpsAgeSec?: number;
+  /** The track geometry the glide follows, anchor → target in travel order. */
+  arc: [number, number][];
+  /** Meters of dead-reckoning applied to this glide (0 = drawn at the fix). */
+  predictMeters: number;
+  /** Track bearing at the target, dir-adjusted — the direction-of-travel arrowhead. */
+  targetHeading: number;
+  /** True while the glide eases AGAINST travel (snapping back after over-prediction). */
+  correcting: boolean;
 }
 
 /** A smoothed vehicle, optionally carrying the interpolation's debug geometry. */
@@ -83,6 +91,42 @@ const MAX_PREDICT_METERS = 1200;
 // this is a feed glitch or a trip re-seat teleport (observed p99 was 78 m/s on
 // exactly such glitches) — re-seed motion instead of predicting with poison.
 const MAX_SPEED_MPS = 45;
+// The next stop has to sit at least this far along the shape to call a travel
+// direction — under it (dwelling at the platform) the sign is noise.
+const NEXT_STOP_DIR_MIN_METERS = 25;
+
+/**
+ * Which way along the shape the train travels (+1 increasing distance, −1
+ * decreasing). Preference order, most → least authoritative:
+ *
+ * 1. The station graph: the feed names the trip's next stop, and the train by
+ *    definition travels toward it. Snapping that stop onto the anchor's shape
+ *    gives the sign directly — immune to the ~8% of fixes (measured) that
+ *    jitter BACKWARDS and would flip an instantaneous heading, which is what
+ *    made arrows invert when a glide snapped back to a new fix.
+ * 2. The previous glide's direction — sticky through dwells, where the next
+ *    stop sits on top of the train and offers no sign.
+ * 3. Heading against the track bearing — first sighting only.
+ */
+export function travelDir(
+  track: TrackIndex,
+  routeId: string,
+  anchor: Cursor,
+  v: Vehicle,
+  prevDir: number | undefined,
+  heading: number,
+): number {
+  if (v.nextStopLon != null && v.nextStopLat != null) {
+    const nextDist = track.snapToShape(routeId, anchor.shape, v.nextStopLon, v.nextStopLat);
+    if (nextDist != null && Math.abs(nextDist - anchor.dist) > NEXT_STOP_DIR_MIN_METERS) {
+      return nextDist > anchor.dist ? 1 : -1;
+    }
+  }
+  if (prevDir) return prevDir;
+  const tb = track.bearingAt(routeId, anchor);
+  const diff = Math.abs(((heading - tb + 540) % 360) - 180);
+  return diff < 90 ? 1 : -1;
+}
 
 function metersBetween(aLon: number, aLat: number, bLon: number, bLat: number): number {
   const dLat = (bLat - aLat) * 111_000;
@@ -210,13 +254,15 @@ export function useSmoothPositions(
       if (track && anchor) {
         const shape = anchor.shape;
         const predM = predictMeters(v, mNow);
-        // Which way along the shape the train travels — measured heading when we
-        // have it, else the feed's reported orientation. Drives both the forward
-        // prediction and the icon's facing as it rounds curves.
+        // Which way along the shape the train travels — from the station graph
+        // (next stop) when it speaks, sticky through dwells, heading only as a
+        // first-sighting fallback. Drives the forward prediction and keeps the
+        // icon facing travel even while a glide eases backward to a new fix.
+        // Sticky only within the SAME shape: overlapping direction polylines
+        // run in opposite vertex order, so a sign doesn't carry across shapes.
         const travelHeading = Number.isNaN(mNow.heading) ? v.heading : mNow.heading;
-        const tb = track.bearingAt(v.routeId, anchor);
-        const diff = Math.abs(((travelHeading - tb + 540) % 360) - 180);
-        const dir = diff < 90 ? 1 : -1;
+        const prevDir = p && p.kind === "track" && p.shape === shape ? p.dir : undefined;
+        const dir = travelDir(track, v.routeId, anchor, v, prevDir, travelHeading);
         const len = track.len(v.routeId, shape);
         const toDist = Math.max(0, Math.min(len, anchor.dist + dir * predM));
         // Keep a persisting glide on the same shape; snap on appear/teleport.
@@ -289,15 +335,32 @@ export function useSmoothPositions(
           let anchorLat = g.v.lat;
           let targetLon = lon;
           let targetLat = lat;
+          let arc: [number, number][] = [];
+          let predictM = 0;
+          let targetHeading = g.v.heading;
+          let correcting = false;
           if (g.kind === "track" && track) {
             [anchorLon, anchorLat] = track.pointAt(g.routeId, {
               shape: g.shape,
               dist: g.anchorDist,
             });
             [targetLon, targetLat] = track.pointAt(g.routeId, { shape: g.shape, dist: g.toDist });
+            arc = track.pathBetween(g.routeId, g.shape, g.anchorDist, g.toDist);
+            predictM = Math.round((g.toDist - g.anchorDist) * g.dir);
+            targetHeading =
+              (track.bearingAt(g.routeId, { shape: g.shape, dist: g.toDist }) +
+                (g.dir < 0 ? 180 : 0)) %
+              360;
+            // Glide running against travel: the previous prediction overshot and
+            // this update is easing the dot back to a fresher fix.
+            correcting = (g.toDist - g.fromDist) * g.dir < 0;
           } else if (g.kind === "line") {
             targetLon = g.toLon;
             targetLat = g.toLat;
+            arc = [
+              [g.fromLon, g.fromLat],
+              [g.toLon, g.toLat],
+            ];
           }
           dbg = {
             rawLon: g.v.lon,
@@ -308,6 +371,10 @@ export function useSmoothPositions(
             targetLat,
             speed: motion.current.get(g.v.id)?.speed ?? 0,
             gpsAgeSec: g.v.gpsAgeSec,
+            arc,
+            predictMeters: predictM,
+            targetHeading,
+            correcting,
           };
         }
         out.push({ ...g.v, lon, lat, heading, debug: dbg });
