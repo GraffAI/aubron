@@ -15,9 +15,9 @@
     "data:replay": "tsx scripts/record-replay.ts"
   },
   "dependencies": {
-    "@deck.gl/react": "^9.3.4",
-    "deck.gl": "^9.3.4",
-    "next": "^16.2.9",
+    "@deck.gl/react": "^9.3.6",
+    "deck.gl": "^9.3.6",
+    "next": "^16.2.10",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -25,7 +25,7 @@
     "@aubron/eslint-config": "workspace:*",
     "@aubron/prettier-config": "workspace:*",
     "@aubron/tsconfig": "workspace:*",
-    "@tailwindcss/postcss": "^4.0.0",
+    "@tailwindcss/postcss": "^4.3.2",
     "@turf/turf": "^7.3.5",
     "@types/geojson": "^7946.0.16",
     "@types/node": "catalog:",
@@ -33,7 +33,7 @@
     "@types/react-dom": "^19.0.0",
     "eslint": "catalog:",
     "osmtogeojson": "3.0.0-beta.5",
-    "tailwindcss": "^4.0.0",
+    "tailwindcss": "^4.3.2",
     "tsx": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
