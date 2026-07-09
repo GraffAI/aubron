@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "data:basemap": "tsx scripts/build-basemap.ts"
+    "data:basemap": "tsx scripts/build-basemap.ts",
+    "data:replay": "tsx scripts/record-replay.ts"
   },
   "dependencies": {
     "@deck.gl/react": "^9.3.4",

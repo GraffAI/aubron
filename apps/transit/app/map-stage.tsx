@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { boundsAround, boundsOfPaths, type Focus, type Padding } from "./lib/camera";
-import { LINE_COLORS, type RGBA } from "./lib/theme";
+import { colorFor, LINE_COLORS, type RGBA } from "./lib/theme";
 import {
   framableByDirection,
   type Filter,
@@ -16,7 +16,9 @@ import {
   type StopInfo,
   type Vehicle,
 } from "./lib/transit";
+import { useReplay } from "./lib/replay";
 import { LineSelector } from "./line-selector";
+import { ReplayBar } from "./replay-bar";
 import { StationPanel } from "./station-panel";
 import { TripPanel } from "./trip-panel";
 
@@ -30,6 +32,12 @@ const rgba = ([r, g, b, a]: RGBA) => `rgba(${r},${g},${b},${(a ?? 255) / 255})`;
 
 const LINE_POLL_MS = 20_000;
 const BOARD_POLL_MS = 20_000;
+
+// Live glides span one poll (~15s); at replay speed they compress to match, so
+// a 60× replay doesn't spend a quarter-hour easing into each frame.
+const TWEEN_MS = 15_000;
+const replayTween = (speed: number): number =>
+  Math.max(400, Math.round(TWEEN_MS / Math.max(1, speed)));
 
 // One padding for every station frame — the initial station-only shot and the
 // refined shot that adds approaching trains. Keeping it identical means the
@@ -59,9 +67,23 @@ export function MapStage() {
   const [boardLoading, setBoardLoading] = useState(false);
 
   const [focus, setFocus] = useState<Focus | null>(null);
+  // Mobile: the filter stack collapses behind a status pill (it would collide
+  // with the line selector on a phone-width screen).
+  const [controlsOpen, setControlsOpen] = useState(false);
   const focusNonce = useRef(0);
   const framedTrip = useRef<string | null>(null);
   const deepLinked = useRef(false);
+
+  // ?replay=<name> (or =1 for the bundled recording) swaps the live feed for a
+  // recorded one — same map, same smoothing, historical trains. Drill-down and
+  // panels are live-data surfaces, so they sit out during a replay.
+  const [replayName, setReplayName] = useState<string | null>(null);
+  useEffect(() => {
+    const want = new URLSearchParams(window.location.search).get("replay");
+    if (!want) return;
+    setReplayName(/^[\w-]+$/.test(want) && want !== "1" && want !== "true" ? want : "replay");
+  }, []);
+  const replay = useReplay(replayName);
 
   const flyTo = useCallback((focusInit: Omit<Focus, "nonce"> | null) => {
     if (!focusInit) return;
@@ -83,7 +105,7 @@ export function MapStage() {
 
   // Deep-link a trip on first load, then keep the selection's data fresh.
   useEffect(() => {
-    if (vehicles.length === 0) return;
+    if (vehicles.length === 0 || replayName) return;
     if (!deepLinked.current) {
       deepLinked.current = true;
       const want = new URLSearchParams(window.location.search).get("trip");
@@ -94,7 +116,7 @@ export function MapStage() {
       }
     }
     setSelected((cur) => (cur ? (vehicles.find((x) => x.tripId === cur.tripId) ?? cur) : cur));
-  }, [vehicles]);
+  }, [vehicles, replayName]);
 
   // Resolve a picked line's geometry (shapes + its own stops) on demand.
   useEffect(() => {
@@ -115,6 +137,7 @@ export function MapStage() {
           mode: route?.mode ?? "bus",
           shapes: g.shapes,
           stops: g.stops,
+          color: route?.color,
         });
       })
       .catch(() => null);
@@ -268,14 +291,17 @@ export function MapStage() {
         lineBusVehicles={lineBusVehicles}
         selectedStopId={stop?.id ?? null}
         focus={focus}
+        replay={
+          replay?.data ? { vehicles: replay.vehicles, tweenMs: replayTween(replay.speed) } : null
+        }
         onVehicles={setVehicles}
         onBuses={handleBuses}
-        onSelect={setSelected}
-        onSelectStop={setStop}
+        onSelect={replay ? undefined : setSelected}
+        onSelectStop={replay ? undefined : setStop}
       />
 
       {/* top-left: wordmark + the line selector (the drill-down's front door) */}
-      <div className="absolute left-5 top-5 flex flex-col gap-3">
+      <div className="absolute left-[max(1.25rem,env(safe-area-inset-left))] top-[max(1.25rem,env(safe-area-inset-top))] flex flex-col gap-3">
         <div className="pointer-events-none select-none">
           <div className="text-[11px] font-medium uppercase tracking-[0.32em] text-white/70">
             Puget Sound
@@ -284,13 +310,15 @@ export function MapStage() {
             transit · live
           </div>
         </div>
-        <LineSelector
-          rail={railRoutes}
-          buses={busRoutes}
-          selectedId={lineId}
-          onSelect={selectLine}
-          counts={counts}
-        />
+        {!replay && (
+          <LineSelector
+            rail={railRoutes}
+            buses={busRoutes}
+            selectedId={lineId}
+            onSelect={selectLine}
+            counts={counts}
+          />
+        )}
         {line && (
           <div className="pointer-events-none max-w-[260px] text-[10px] uppercase tracking-[0.22em] text-white/40">
             {liveOnLine} live · tap a station for arrivals
@@ -298,47 +326,83 @@ export function MapStage() {
         )}
       </div>
 
-      {/* top-right: overview filters (ambient view only) or focused toggles */}
-      <div className="absolute right-5 top-5 select-none text-right">
-        {!line ? (
-          <>
-            <div className="mb-2 text-[10px] uppercase tracking-[0.28em] text-white/40">
-              {vehicles.length} trains{filter.buses ? ` · ${busCount} buses` : ""} live
-            </div>
+      {/* top-right: overview filters (ambient view only) or focused toggles.
+          On phones the stack folds behind a status pill so it can't collide
+          with the selector; ≥sm it's always spread out. */}
+      <div className="absolute right-[max(1.25rem,env(safe-area-inset-right))] top-[max(1.25rem,env(safe-area-inset-top))] flex select-none flex-col items-end text-right">
+        <button
+          type="button"
+          onClick={() => setControlsOpen((o) => !o)}
+          className="mb-2 flex items-center gap-2 rounded-lg border border-white/10 bg-black/55 px-2.5 py-2 backdrop-blur-md sm:hidden"
+        >
+          <span className="text-[10px] uppercase tracking-[0.2em] text-white/60">
+            {!line ? `${vehicles.length}${filter.buses ? `+${busCount}` : ""} live` : "filters"}
+          </span>
+          <span className="text-[10px] text-white/40">{controlsOpen ? "▴" : "▾"}</span>
+        </button>
+        <div
+          className={`${controlsOpen ? "flex" : "hidden"} flex-col items-end rounded-lg border border-white/10 bg-black/55 p-2 text-right backdrop-blur-md sm:flex sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none`}
+        >
+          {!line ? (
+            <>
+              <div className="mb-2 hidden text-[10px] uppercase tracking-[0.28em] text-white/40 sm:block">
+                {vehicles.length} trains{filter.buses ? ` · ${busCount} buses` : ""} live
+              </div>
+              <div className="flex flex-col items-end gap-1">
+                {railRoutes.map((l) => {
+                  const on = filter.lines.has(l.shortName);
+                  const n = counts.get(l.shortName) ?? 0;
+                  const color = colorFor(l.shortName, l.color);
+                  return (
+                    <button
+                      key={l.id}
+                      type="button"
+                      onClick={() => toggleLine(l.shortName)}
+                      className="flex items-center gap-2 rounded px-1 py-0.5 text-[11px] tabular-nums transition hover:bg-white/5"
+                      style={{ opacity: on ? 1 : 0.3 }}
+                    >
+                      <span className="text-white/70">{l.shortName}</span>
+                      <span className="w-4 text-white/40">{n}</span>
+                      <span
+                        className="inline-block h-2 w-2 rounded-full"
+                        style={{
+                          background: rgba(color),
+                          boxShadow: on ? `0 0 6px ${rgba(color)}` : "none",
+                        }}
+                      />
+                    </button>
+                  );
+                })}
+
+                <div className="my-1 h-px w-full bg-white/10" />
+
+                <Toggle
+                  label="Buses"
+                  on={filter.buses}
+                  onClick={() => setFilter((f) => ({ ...f, buses: !f.buses }))}
+                  dot={rgba(LINE_COLORS.bus!)}
+                />
+                <Toggle
+                  label="On time only"
+                  on={filter.onTimeOnly}
+                  onClick={() => setFilter((f) => ({ ...f, onTimeOnly: !f.onTimeOnly }))}
+                  dot="rgb(110,231,183)"
+                />
+                <Toggle
+                  label="Debug interp"
+                  on={filter.debug}
+                  onClick={() => setFilter((f) => ({ ...f, debug: !f.debug }))}
+                  dot="rgb(90,220,255)"
+                />
+              </div>
+              {filter.buses && (
+                <div className="mt-1 max-w-[180px] text-right text-[9px] leading-tight text-white/30">
+                  buses shown for the visible area
+                </div>
+              )}
+            </>
+          ) : (
             <div className="flex flex-col items-end gap-1">
-              {railRoutes.map((l) => {
-                const on = filter.lines.has(l.shortName);
-                const n = counts.get(l.shortName) ?? 0;
-                const color = LINE_COLORS[l.shortName] ?? [150, 170, 190, 220];
-                return (
-                  <button
-                    key={l.id}
-                    type="button"
-                    onClick={() => toggleLine(l.shortName)}
-                    className="flex items-center gap-2 rounded px-1 py-0.5 text-[11px] tabular-nums transition hover:bg-white/5"
-                    style={{ opacity: on ? 1 : 0.3 }}
-                  >
-                    <span className="text-white/70">{l.shortName}</span>
-                    <span className="w-4 text-white/40">{n}</span>
-                    <span
-                      className="inline-block h-2 w-2 rounded-full"
-                      style={{
-                        background: rgba(color),
-                        boxShadow: on ? `0 0 6px ${rgba(color)}` : "none",
-                      }}
-                    />
-                  </button>
-                );
-              })}
-
-              <div className="my-1 h-px w-full bg-white/10" />
-
-              <Toggle
-                label="Buses"
-                on={filter.buses}
-                onClick={() => setFilter((f) => ({ ...f, buses: !f.buses }))}
-                dot={rgba(LINE_COLORS.bus!)}
-              />
               <Toggle
                 label="On time only"
                 on={filter.onTimeOnly}
@@ -352,33 +416,13 @@ export function MapStage() {
                 dot="rgb(90,220,255)"
               />
             </div>
-            {filter.buses && (
-              <div className="mt-1 max-w-[180px] text-right text-[9px] leading-tight text-white/30">
-                buses shown for the visible area
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="flex flex-col items-end gap-1">
-            <Toggle
-              label="On time only"
-              on={filter.onTimeOnly}
-              onClick={() => setFilter((f) => ({ ...f, onTimeOnly: !f.onTimeOnly }))}
-              dot="rgb(110,231,183)"
-            />
-            <Toggle
-              label="Debug interp"
-              on={filter.debug}
-              onClick={() => setFilter((f) => ({ ...f, debug: !f.debug }))}
-              dot="rgb(90,220,255)"
-            />
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {filter.debug && <DebugLegend />}
 
-      {stop && (
+      {stop && !replay && (
         <StationPanel
           board={board}
           loading={boardLoading}
@@ -387,7 +431,9 @@ export function MapStage() {
         />
       )}
 
-      {selected && <TripPanel vehicle={selected} onClose={() => setSelected(null)} />}
+      {selected && !replay && <TripPanel vehicle={selected} onClose={() => setSelected(null)} />}
+
+      {replay && <ReplayBar replay={replay} />}
     </main>
   );
 }
@@ -400,8 +446,9 @@ const DEBUG_KEYS: { label: string; dot: string }[] = [
 ];
 
 function DebugLegend() {
+  // Desktop-only: on a phone it would sit under the station sheet.
   return (
-    <div className="pointer-events-none absolute bottom-5 right-5 select-none rounded-md border border-white/10 bg-black/40 px-3 py-2 backdrop-blur-sm">
+    <div className="pointer-events-none absolute bottom-5 right-5 hidden select-none rounded-md border border-white/10 bg-black/40 px-3 py-2 backdrop-blur-sm sm:block">
       <div className="mb-1 text-[9px] uppercase tracking-[0.28em] text-white/40">interpolation</div>
       <div className="flex flex-col gap-1">
         {DEBUG_KEYS.map((k) => (

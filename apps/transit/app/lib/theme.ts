@@ -18,10 +18,30 @@ export const COLORS = {
   markerEdge: [4, 7, 11, 235] as RGBA,
 } as const;
 
-/** Official-ish Sound Transit line colors, used once vehicles land. */
+/** Official-ish Sound Transit line colors, brightened for the dark map. */
 export const LINE_COLORS: Record<string, RGBA> = {
   "1 Line": [0, 169, 79, 255], // green
   "2 Line": [0, 122, 201, 255], // blue
   "T Line": [241, 110, 30, 255], // orange
   bus: [150, 160, 178, 220],
 } as const;
+
+export const RAIL_FALLBACK: RGBA = [150, 170, 190, 220];
+
+/** Parse a GTFS route_color ("RRGGBB", optionally "#"-prefixed) to RGBA. */
+export function parseGtfsColor(hex: string | undefined): RGBA | null {
+  if (!hex) return null;
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1]!, 16);
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff, 255];
+}
+
+/**
+ * The color for a line: the hand-tuned palette first (brightened for the dark
+ * map), then the agency's GTFS route_color (how Sounder's steel blue and Amtrak's
+ * slate get in without hardcoding every route), then the neutral rail fallback.
+ */
+export function colorFor(shortName: string, gtfsColor?: string): RGBA {
+  return LINE_COLORS[shortName] ?? parseGtfsColor(gtfsColor) ?? RAIL_FALLBACK;
+}

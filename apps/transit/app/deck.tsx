@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { type Basemap, loadBasemap } from "./lib/basemap";
 import { type Focus, fitBounds } from "./lib/camera";
-import { COLORS, LINE_COLORS, type RGBA } from "./lib/theme";
+import { colorFor, COLORS, LINE_COLORS, RAIL_FALLBACK, type RGBA } from "./lib/theme";
 import { TrackIndex } from "./lib/track";
 import {
   type Filter,
@@ -30,11 +30,11 @@ import {
 } from "./lib/transit";
 import { type SmoothVehicle, usePageVisible, useSmoothPositions } from "./lib/useSmoothPositions";
 
-// The upstream feed refreshes all trains together in bursts every ~16s (measured),
-// and each fix already arrives ~18s stale — a lag no poll rate can undo. We poll at
-// ~half the burst period so we catch each batch within ~8s (15s would beat in and
-// out of phase with the 16s cadence); /api/vehicles memoizes ~5s so this doesn't
-// multiply upstream load. useSmoothPositions then carries moving trains forward
+// The upstream feed refreshes each train's fix every ~20s median (p90 35s,
+// measured 2026-07), and a fix is already ~16s old when it first appears — a lag
+// no poll rate can undo. We poll at well under the refresh period so we catch
+// each new fix within ~8s; /api/vehicles memoizes ~5s so this doesn't multiply
+// upstream load. useSmoothPositions then carries moving trains forward
 // along the track at their schedule-paced speed so the dot tracks ~real-time.
 // Interpolation is keyed by tripId (not deck's index-based transitions, which swap
 // vehicles when the set changes).
@@ -69,11 +69,9 @@ const INITIAL_VIEW_STATE = {
   bearing: 0,
 };
 
-const RAIL_FALLBACK: RGBA = [150, 170, 190, 220];
 const BUS_COLOR = LINE_COLORS.bus ?? RAIL_FALLBACK;
-const lineColor = (shortName: string): RGBA => LINE_COLORS[shortName] ?? RAIL_FALLBACK;
-const routeColor = (shortName: string, mode: Mode): RGBA =>
-  mode === "bus" ? BUS_COLOR : lineColor(shortName);
+const routeColor = (shortName: string, mode: Mode, gtfsColor?: string): RGBA =>
+  mode === "bus" ? BUS_COLOR : colorFor(shortName, gtfsColor);
 
 interface Props {
   net: NetworkData | null;
@@ -86,6 +84,12 @@ interface Props {
   selectedStopId: string | null;
   /** Camera target; a new nonce re-triggers the fly even to the same place. */
   focus: Focus | null;
+  /**
+   * When set, live polling stops and these recorded vehicles ride the map
+   * instead — through the same track-snapped smoothing, with the glide time
+   * compressed to the playback speed.
+   */
+  replay?: { vehicles: Vehicle[]; tweenMs: number } | null;
   onVehicles?: (v: Vehicle[]) => void;
   onBuses?: (v: Vehicle[]) => void;
   onSelect?: (v: Vehicle | null) => void;
@@ -105,6 +109,7 @@ export function TransitDeck({
   lineBusVehicles,
   selectedStopId,
   focus,
+  replay,
   onVehicles,
   onBuses,
   onSelect,
@@ -153,9 +158,16 @@ export function TransitDeck({
     });
   }, [focus]);
 
+  // A replay substitutes for the live rail feed; report it up (counts, filters).
+  const replaying = !!replay;
+  useEffect(() => {
+    if (!replay) return;
+    onVehiclesRef.current?.(replay.vehicles);
+  }, [replay]);
+
   // Rail vehicles, network-wide — only while the tab is foregrounded.
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || replaying) return;
     let active = true;
     const tick = async () => {
       try {
@@ -176,7 +188,7 @@ export function TransitDeck({
       active = false;
       clearInterval(id);
     };
-  }, [visible]);
+  }, [visible, replaying]);
 
   // Viewport buses — only in the ambient overview (a drilled-in line shows its own).
   const fetchBuses = useCallback(async () => {
@@ -208,7 +220,7 @@ export function TransitDeck({
     }
   }, []);
 
-  const overviewBuses = !selectedLine && filter.buses;
+  const overviewBuses = !selectedLine && filter.buses && !replaying;
   useEffect(() => {
     if (!overviewBuses) {
       setBuses([]);
@@ -229,7 +241,12 @@ export function TransitDeck({
   const track = useMemo(() => (net ? new TrackIndex(net) : null), [net]);
 
   // Smooth, tripId-keyed interpolation (the fix for trains flying across).
-  const railSmooth = useSmoothPositions(vehicles, POSITION_TWEEN_MS, track, filter.debug);
+  const railSmooth = useSmoothPositions(
+    replay ? replay.vehicles : vehicles,
+    replay ? replay.tweenMs : POSITION_TWEEN_MS,
+    track,
+    filter.debug,
+  );
   const busViewportSmooth = useSmoothPositions(buses, POSITION_TWEEN_MS);
   const busLineSmooth = useSmoothPositions(lineBusVehicles, POSITION_TWEEN_MS);
 
@@ -316,7 +333,7 @@ export function TransitDeck({
         data: shown,
         getPath: (d) => d.path,
         getColor: (d) => {
-          const [r, g, b] = lineColor(d.shortName);
+          const [r, g, b] = colorFor(d.shortName, d.color);
           return [r, g, b, 28];
         },
         widthUnits: "pixels",
@@ -328,7 +345,7 @@ export function TransitDeck({
         id: "routes",
         data: shown,
         getPath: (d) => d.path,
-        getColor: (d) => lineColor(d.shortName),
+        getColor: (d) => colorFor(d.shortName, d.color),
         widthUnits: "pixels",
         getWidth: 2.4,
         widthMinPixels: 1.4,
@@ -354,7 +371,7 @@ export function TransitDeck({
   // Drilled-in line: the chosen line drawn bold, its stops big, named, and clickable.
   const lineLayers = useMemo(() => {
     if (!selectedLine) return [];
-    const col = routeColor(selectedLine.shortName, selectedLine.mode);
+    const col = routeColor(selectedLine.shortName, selectedLine.mode, selectedLine.color);
     const [r, g, b] = col;
     return [
       new PathLayer<ShapeLine>({
@@ -471,7 +488,7 @@ export function TransitDeck({
       getRadius: selectedLine ? 12 : 10,
       radiusUnits: "pixels",
       getFillColor: (d) => {
-        const [r, g, b] = lineColor(d.shortName);
+        const [r, g, b] = colorFor(d.shortName, d.color);
         return [r, g, b, d.hasGps ? 48 : 16];
       },
       updateTriggers: { getRadius: !!selectedLine },
@@ -519,7 +536,7 @@ export function TransitDeck({
       getSize: selectedLine ? 11 : 9.5,
       sizeUnits: "pixels",
       getColor: (d) => {
-        const [r, g, b] = lineColor(d.shortName);
+        const [r, g, b] = colorFor(d.shortName, d.color);
         return [r, g, b, staleAlpha(d)];
       },
       getAngle: (d) => -d.heading, // icon points north at 0; heading is CW from north
@@ -631,7 +648,7 @@ export function TransitDeck({
         if (debounce.current) clearTimeout(debounce.current);
         debounce.current = setTimeout(() => void fetchBuses(), 600);
       }}
-      pickingRadius={8}
+      pickingRadius={14} // generous for touch — station dots are only ~5px
       style={{ position: "absolute", inset: "0" }}
       getCursor={({ isHovering }) => (isHovering ? "pointer" : "grab")}
       getTooltip={({ object }: PickingInfo<Vehicle | StopInfo>) => {
