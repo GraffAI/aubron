@@ -138,6 +138,25 @@ export class TrackIndex {
     return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
   }
 
+  /**
+   * The shape's geometry between two distances, ordered a → b (reversed when
+   * a > b), endpoints interpolated. Lets the debug overlay draw a glide as the
+   * arc it actually follows along the rails instead of a straight chord.
+   */
+  pathBetween(routeId: string, shape: number, a: number, b: number): [number, number][] {
+    const s = this.routes.get(routeId)?.[shape];
+    if (!s) return [];
+    const lo = Math.max(0, Math.min(s.len, Math.min(a, b)));
+    const hi = Math.max(0, Math.min(s.len, Math.max(a, b)));
+    const pts: [number, number][] = [this.pointAt(routeId, { shape, dist: lo })];
+    for (let i = 0; i < s.cum.length; i++) {
+      if (s.cum[i]! > lo && s.cum[i]! < hi) pts.push(s.pts[i]!);
+    }
+    pts.push(this.pointAt(routeId, { shape, dist: hi }));
+    if (a > b) pts.reverse();
+    return pts;
+  }
+
   /** Heading of the track at a cursor (0 = north, clockwise). */
   bearingAt(routeId: string, c: Cursor): number {
     const s = this.routes.get(routeId)?.[c.shape];

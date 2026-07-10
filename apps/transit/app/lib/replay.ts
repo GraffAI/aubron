@@ -105,9 +105,15 @@ export function useReplay(name: string | null): ReplayState | null {
 
   useEffect(() => {
     if (!name || !data || !playing) return;
+    // Advance by MEASURED elapsed time, not ticks: on a busy main thread
+    // (heavy frames starve setInterval) tick-counting made playback run slow.
+    let last = performance.now();
     const id = setInterval(() => {
+      const t = performance.now();
+      const dt = t - last;
+      last = t;
       setClock((c) => {
-        const next = c + TICK_MS * speed;
+        const next = c + dt * speed;
         // Loop: run off the end → back to the top (the ambient-theater default).
         return next > data.end ? data.frames[0]!.t : next;
       });

@@ -555,18 +555,37 @@ export function TransitDeck({
     : [];
   const debugLayers = filter.debug
     ? [
+        // The story reads past → present → future: the raw fix (pink, ring =
+        // staleness) tethers to where it snapped on the track (orange); from
+        // there the green arc is the dead-reckoned glide along the rails,
+        // ending in an arrowhead that always faces TRAVEL direction — even
+        // when the glide itself is easing backward to correct an overshoot
+        // (those show amber + "corr" in the label).
         new PathLayer<(typeof dbg)[number]>({
-          id: "dbg-path",
+          id: "dbg-tether",
           data: dbg,
           getPath: (d) => [
             [d.debug.rawLon, d.debug.rawLat],
             [d.debug.anchorLon, d.debug.anchorLat],
-            [d.debug.targetLon, d.debug.targetLat],
           ],
-          getColor: [255, 176, 32, 110],
+          getColor: [DBG_RAW[0], DBG_RAW[1], DBG_RAW[2], 120],
           widthUnits: "pixels",
           getWidth: 1,
           widthMinPixels: 1,
+        }),
+        new PathLayer<(typeof dbg)[number]>({
+          id: "dbg-arc",
+          data: dbg,
+          getPath: (d) => d.debug.arc,
+          getColor: (d) =>
+            d.debug.correcting
+              ? [255, 176, 32, 190] // easing backward — correction in progress
+              : [DBG_TARGET[0], DBG_TARGET[1], DBG_TARGET[2], 170],
+          widthUnits: "pixels",
+          getWidth: 1.75,
+          widthMinPixels: 1,
+          capRounded: true,
+          jointRounded: true,
         }),
         new ScatterplotLayer<(typeof dbg)[number]>({
           id: "dbg-age",
@@ -580,14 +599,6 @@ export function TransitDeck({
           getLineColor: [DBG_RAW[0], DBG_RAW[1], DBG_RAW[2], 90],
           lineWidthUnits: "pixels",
           getLineWidth: 1,
-        }),
-        new ScatterplotLayer<(typeof dbg)[number]>({
-          id: "dbg-target",
-          data: dbg,
-          getPosition: (d) => [d.debug.targetLon, d.debug.targetLat],
-          getRadius: 2.5,
-          radiusUnits: "pixels",
-          getFillColor: DBG_TARGET,
         }),
         new ScatterplotLayer<(typeof dbg)[number]>({
           id: "dbg-anchor",
@@ -613,14 +624,35 @@ export function TransitDeck({
           radiusUnits: "pixels",
           getFillColor: DBG_SMOOTH,
         }),
-        new TextLayer<(typeof dbg)[number]>({
-          id: "dbg-age-text",
+        // Direction-of-travel arrowhead at the prediction target. Locked to the
+        // station graph (next stop), so it must NOT flip when a glide runs
+        // backward — if it does, that's the inversion bug regressing.
+        new IconLayer<(typeof dbg)[number]>({
+          id: "dbg-target-arrow",
           data: dbg,
-          getPosition: (d) => [d.debug.rawLon, d.debug.rawLat],
-          getText: (d) => `${d.debug.gpsAgeSec ?? "?"}s · ${(d.debug.speed * 3.6).toFixed(0)}km/h`,
+          getPosition: (d) => [d.debug.targetLon, d.debug.targetLat],
+          getIcon: () => ({
+            url: ARROW_ICON,
+            width: 24,
+            height: 24,
+            anchorX: 12,
+            anchorY: 12,
+            mask: true,
+          }),
           getSize: 9,
           sizeUnits: "pixels",
-          getColor: [255, 255, 255, 180],
+          getColor: DBG_TARGET,
+          getAngle: (d) => -d.debug.targetHeading,
+        }),
+        new TextLayer<(typeof dbg)[number]>({
+          id: "dbg-label",
+          data: dbg,
+          getPosition: (d) => [d.debug.rawLon, d.debug.rawLat],
+          getText: (d) =>
+            `${d.debug.gpsAgeSec ?? "?"}s · ${(d.debug.speed * 3.6).toFixed(0)}km/h · +${d.debug.predictMeters}m${d.debug.correcting ? " · corr" : ""}`,
+          getSize: 9,
+          sizeUnits: "pixels",
+          getColor: (d) => (d.debug.correcting ? [255, 200, 90, 220] : [255, 255, 255, 180]),
           getPixelOffset: [0, -12],
           getTextAnchor: "middle",
           getAlignmentBaseline: "bottom",
