@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [transit]
+        app: [transit, karaoke]
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_KEY }}
       VERCEL_SCOPE: ${{ vars.VERCEL_SCOPE }}
