@@ -4,6 +4,7 @@ import { AddSong } from "./add-song";
 import { isAuthEnabled } from "./lib/auth";
 import { getSongs } from "./lib/catalog";
 import { formatClock } from "./lib/lrc";
+import { isStorageConfigured } from "./lib/storage";
 
 // The library manifest and the auth banner both reflect runtime state.
 export const dynamic = "force-dynamic";
@@ -56,13 +57,15 @@ export default async function Library() {
         <h2 className="text-xs font-medium uppercase tracking-widest text-white/40">
           Sing something of yours
         </h2>
-        <AddSong />
-        <p className="text-[11px] leading-snug text-white/30">
-          Dropped files play as-is (no stem separation in the browser). To add a song to the shared
-          collection with separated vocals — the full experience — run it through the ingestion
-          pipeline: <code className="text-white/50">POST /api/ingest</code>, then commit the stems
-          to <code className="text-white/50">public/library/</code>. Details in the README.
-        </p>
+        <AddSong libraryEnabled={isStorageConfigured()} />
+        {!isStorageConfigured() && (
+          <p className="text-[11px] leading-snug text-white/30">
+            Library storage is not configured, so dropped files only play in this tab. Point{" "}
+            <code className="text-white/50">STORAGE_*</code> at a private S3-compatible bucket
+            (README: Storage) and ingest becomes one click: upload → stem separation → timed lyrics
+            → in the collection.
+          </p>
+        )}
       </section>
 
       {!isAuthEnabled() && (

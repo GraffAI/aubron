@@ -138,7 +138,9 @@ export function Player({ song: serverSong, songId }: { song: Song | null; songId
     );
   }
 
-  const hasVocalStem = song?.source.kind !== "local";
+  const hasVocalStem =
+    song?.source.kind === "builtin" ||
+    (song?.source.kind === "stems" && song.source.urls.vocals !== undefined);
 
   return (
     <main className="flex h-dvh flex-col">

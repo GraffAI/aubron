@@ -12,24 +12,35 @@ interface Draft {
   duration: number;
   data: ArrayBuffer;
   fileName: string;
+  contentType: string;
 }
 
+type Phase =
+  | { step: "idle" }
+  | { step: "uploading" }
+  | { step: "separating" }
+  | { step: "added"; songId?: string }
+  | { step: "failed"; message: string };
+
 /**
- * "Load in a lawfully acquired MP3": reads ID3 metadata locally, looks up
- * timed lyrics (LRCLIB via /api/lyrics), and starts a session-local sing —
- * the audio never leaves the browser. Permanent, stem-separated library
- * entries go through the ingestion pipeline instead (see README).
+ * "Load in a lawfully acquired MP3": reads ID3 metadata locally, then either
+ * sings it right now (session-local, audio never leaves the browser) or — when
+ * private library storage is configured — ingests it: upload straight to the
+ * bucket via a one-shot presigned PUT, then lyrics + stem separation run
+ * server-side and the song lands in the collection.
  */
-export function AddSong() {
+export function AddSong({ libraryEnabled }: { libraryEnabled: boolean }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<Phase>({ step: "idle" });
   const [dragOver, setDragOver] = useState(false);
   const [note, setNote] = useState("");
 
   const acceptFile = async (file: File) => {
     setNote("");
+    setPhase({ step: "idle" });
     const data = await file.arrayBuffer();
     const tags = readId3(data);
     // Decode a copy for the real duration (decodeAudioData detaches its input).
@@ -48,10 +59,11 @@ export function AddSong() {
       duration,
       data,
       fileName: file.name,
+      contentType: file.type || "audio/mpeg",
     });
   };
 
-  const sing = async () => {
+  const singNow = async () => {
     if (!draft) return;
     setBusy(true);
     let lrc: string | null = null;
@@ -81,6 +93,61 @@ export function AddSong() {
     router.push(`/sing/${song.id}`);
   };
 
+  const addToLibrary = async () => {
+    if (!draft) return;
+    setBusy(true);
+    try {
+      setPhase({ step: "uploading" });
+      const presign = await fetch("/api/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: draft.fileName, contentType: draft.contentType }),
+      });
+      if (!presign.ok) throw new Error("upload not available");
+      const { key, url } = (await presign.json()) as { key: string; url: string };
+      const put = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": draft.contentType },
+        body: draft.data,
+      });
+      if (!put.ok) throw new Error(`upload failed (${put.status})`);
+
+      const start = await fetch("/api/ingest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key,
+          title: draft.title,
+          artist: draft.artist || "Unknown artist",
+          durationSeconds: Math.round(draft.duration),
+        }),
+      });
+      if (!start.ok) throw new Error("ingest failed to start");
+      let state = (await start.json()) as {
+        jobId: string;
+        status: string;
+        songId?: string;
+        error?: string;
+      };
+
+      setPhase({ step: "separating" });
+      while (state.status === "separating") {
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        const poll = await fetch(`/api/ingest/${state.jobId}`);
+        if (!poll.ok) throw new Error("lost track of the ingest job");
+        state = (await poll.json()) as typeof state;
+      }
+      if (state.status !== "done") throw new Error(state.error ?? "ingest failed");
+      setPhase({ step: "added", songId: state.songId });
+      setDraft(null);
+      router.refresh(); // the collection list is server-rendered
+    } catch (err) {
+      setPhase({ step: "failed", message: err instanceof Error ? err.message : "ingest failed" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
       {draft ? (
@@ -98,17 +165,38 @@ export function AddSong() {
             placeholder="Artist (needed for the lyrics lookup)"
             className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-neon/60"
           />
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            {libraryEnabled ? (
+              <button
+                onClick={() => void addToLibrary()}
+                disabled={busy || !draft.title}
+                className="flex-1 rounded-lg bg-neon px-3 py-2 text-sm font-medium text-black transition hover:brightness-110 disabled:opacity-40"
+              >
+                {phase.step === "uploading"
+                  ? "Uploading…"
+                  : phase.step === "separating"
+                    ? "Separating stems + timing lyrics…"
+                    : "Add to library"}
+              </button>
+            ) : null}
             <button
-              onClick={() => void sing()}
+              onClick={() => void singNow()}
               disabled={busy || !draft.title}
-              className="flex-1 rounded-lg bg-neon px-3 py-2 text-sm font-medium text-black transition hover:brightness-110 disabled:opacity-40"
+              className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition disabled:opacity-40 ${
+                libraryEnabled
+                  ? "border border-white/15 text-white/80 hover:border-neon/60"
+                  : "bg-neon text-black hover:brightness-110"
+              }`}
             >
-              {busy ? "Finding timed lyrics…" : "Find lyrics & sing"}
+              {busy && !libraryEnabled ? "Finding timed lyrics…" : "Sing now (this tab only)"}
             </button>
             <button
-              onClick={() => setDraft(null)}
-              className="rounded-lg border border-white/15 px-3 py-2 text-sm text-white/60"
+              onClick={() => {
+                setDraft(null);
+                setPhase({ step: "idle" });
+              }}
+              disabled={busy}
+              className="rounded-lg border border-white/15 px-3 py-2 text-sm text-white/60 disabled:opacity-40"
             >
               Cancel
             </button>
@@ -134,10 +222,24 @@ export function AddSong() {
               : "border-white/20 text-white/50 hover:border-white/40"
           }`}
         >
-          Drop a lawfully acquired MP3 here (or click) — metadata is read locally, timed lyrics are
-          fetched, and you sing right away. The audio never leaves this tab.
+          {libraryEnabled
+            ? "Drop a lawfully acquired MP3 here (or click). Add it to the private library — stems separated, lyrics timed — or just sing it in this tab."
+            : "Drop a lawfully acquired MP3 here (or click) — metadata is read locally, timed lyrics are fetched, and you sing right away. The audio never leaves this tab."}
         </button>
       )}
+      {phase.step === "added" ? (
+        <p className="rounded-lg border border-neon/30 bg-neon/10 px-3 py-2 text-xs text-neon">
+          In the collection.{" "}
+          {phase.songId ? (
+            <a href={`/sing/${phase.songId}`} className="underline">
+              Sing it now →
+            </a>
+          ) : null}
+        </p>
+      ) : null}
+      {phase.step === "failed" ? (
+        <p className="text-xs text-red-400">Ingest failed: {phase.message}</p>
+      ) : null}
       {note ? <p className="text-xs text-red-400">{note}</p> : null}
       <input
         ref={inputRef}

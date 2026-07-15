@@ -50,30 +50,50 @@ slots (`app/lib/pipeline.ts`), exercised by `POST /api/ingest`:
 | **Separation** | Source separation (_not_ diarization — that's "who spoke when"; we want stems): Demucs/htdemucs on Replicate. Same interface fits LALAL.AI, Music.AI (Moises), AudioShake, or self-hosted demucs.   | wired; set `REPLICATE_API_TOKEN` + `REPLICATE_DEMUCS_VERSION` |
 | **Alignment**  | When only untimed lyrics exist: forced alignment (WhisperX / stable-ts) run over the **isolated vocal stem** — far more accurate than aligning against the full mix — seeded with the plain lyrics. | stubbed, documented                                           |
 
-`/api/ingest` returns the job plan and every artifact it could gather (synced
-LRC, separation job URL). Persisting results into the library is the deploy
-step — deliberately, so nothing copyrighted lands anywhere implicitly.
+Ingest is **autonomous** once storage is configured: drop a file → it uploads
+straight to the private bucket (one-shot presigned PUT) → `POST /api/ingest`
+finds lyrics and starts separation → polling `GET /api/ingest/<jobId>`
+finalizes: stems are copied into the bucket, the manifest is updated, and the
+song appears in the collection. With no separation provider the song still
+lands (full mix as backing, vocal fader inert) and can be re-ingested later.
 
-## Library format
+## Storage (the private library)
 
-```
-public/library/index.json           LibraryEntry[] (see app/lib/types.ts)
-public/library/<id>/vocals.m4a      separated vocal stem
-public/library/<id>/backing.m4a     separated instrumental stem
-public/library/<id>/lyrics.lrc      timed lyrics (enhanced LRC welcome)
-```
+The system of record is a **private S3-compatible bucket** — Cloudflare R2
+(recommended: free egress), AWS S3, MinIO, Backblaze B2. Nothing in it is ever
+public and no long-lived URLs exist:
 
-These files sit behind the auth middleware. Swapping the directory for object
-storage (Vercel Blob / S3 signed URLs) only changes the URLs in the manifest —
-the player just fetches and decodes.
+- Browsers get stems only through `GET /api/stems/<songId>/<stem>`, a
+  streaming proxy **inside the auth gate**. Storage URLs and credentials never
+  reach the client.
+- The only presigned URLs are short-lived: a 10-minute one-shot PUT for an
+  upload, and a read URL handed to the separation provider for one original.
+- Bucket layout: `originals/<uuid>.<ext>` (uploads), `library/index.json`
+  (the manifest, `StoredLibraryEntry[]`), `library/<songId>/{vocals,backing}.*`
+  (stems), `jobs/<uuid>.json` (ingest job state, so any serverless instance
+  can carry a poll forward).
+
+Setup (R2 example): create a bucket, create an API token scoped to it, set the
+`STORAGE_*` variables below, and add a CORS rule allowing `PUT` from the app's
+origin (needed for direct-to-bucket uploads).
+
+There is also a static tier — `public/library/` with an `index.json`, baked
+into the deploy and served behind the same middleware — useful for a fixed
+starter collection without any bucket at all.
 
 ## Environment
 
-| Variable                   | Purpose                                                                               |
-| -------------------------- | ------------------------------------------------------------------------------------- |
-| `KARAOKE_PASSCODE`         | Enables auth; also the session-cookie signing secret (rotating it logs everyone out). |
-| `REPLICATE_API_TOKEN`      | Enables the separation step of `/api/ingest`.                                         |
-| `REPLICATE_DEMUCS_VERSION` | Pinned demucs model version id on Replicate.                                          |
+| Variable                    | Purpose                                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------- |
+| `KARAOKE_PASSCODE`          | Enables auth; also the session-cookie signing secret (rotating it logs everyone out). |
+| `STORAGE_ENDPOINT`          | S3-compatible endpoint (e.g. `https://<account>.r2.cloudflarestorage.com`).           |
+| `STORAGE_BUCKET`            | Bucket name. Keep it **private** — no public access, ever.                            |
+| `STORAGE_ACCESS_KEY_ID`     | Credentials scoped to that bucket.                                                    |
+| `STORAGE_SECRET_ACCESS_KEY` | —                                                                                     |
+| `STORAGE_REGION`            | Optional (default `us-east-1`; R2 uses `auto`).                                       |
+| `STORAGE_FORCE_PATH_STYLE`  | Set for R2/MinIO.                                                                     |
+| `REPLICATE_API_TOKEN`       | Enables the separation step of `/api/ingest`.                                         |
+| `REPLICATE_DEMUCS_VERSION`  | Pinned demucs model version id on Replicate.                                          |
 
 ## Develop
 

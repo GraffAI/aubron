@@ -65,6 +65,13 @@ export type SeparationStart =
   | { started: true; job: SeparationJob }
   | { started: false; reason: string };
 
+// Overridable so integration tests can stand in for Replicate.
+const replicateBase = () => process.env.REPLICATE_API_BASE ?? "https://api.replicate.com";
+
+export function isSeparationConfigured(): boolean {
+  return Boolean(process.env.REPLICATE_API_TOKEN && process.env.REPLICATE_DEMUCS_VERSION);
+}
+
 export async function startSeparation(audioUrl: string): Promise<SeparationStart> {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) {
@@ -79,7 +86,7 @@ export async function startSeparation(audioUrl: string): Promise<SeparationStart
       reason: "REPLICATE_DEMUCS_VERSION not configured (pin a demucs version id)",
     };
   }
-  const res = await fetch("https://api.replicate.com/v1/predictions", {
+  const res = await fetch(`${replicateBase()}/v1/predictions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -92,6 +99,40 @@ export async function startSeparation(audioUrl: string): Promise<SeparationStart
   }
   const prediction = (await res.json()) as { urls: { get: string } };
   return { started: true, job: { provider: "replicate", predictionUrl: prediction.urls.get } };
+}
+
+export interface PredictionState {
+  status: "starting" | "processing" | "succeeded" | "failed" | "canceled";
+  output?: unknown;
+  error?: string | null;
+}
+
+export async function getPrediction(predictionUrl: string): Promise<PredictionState> {
+  const res = await fetch(predictionUrl, {
+    headers: { Authorization: `Bearer ${process.env.REPLICATE_API_TOKEN}` },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`replicate poll failed: ${res.status}`);
+  return (await res.json()) as PredictionState;
+}
+
+/**
+ * Demucs deployments name their two-stem outputs inconsistently; accept the
+ * common spellings. Returns undefineds when the shape is unrecognized.
+ */
+export function pickStems(output: unknown): { vocals?: string; instrumental?: string } {
+  if (typeof output !== "object" || output === null) return {};
+  const map = output as Record<string, unknown>;
+  const url = (v: unknown) => (typeof v === "string" && v.length > 0 ? v : undefined);
+  return {
+    vocals: url(map.vocals),
+    instrumental:
+      url(map.no_vocals) ??
+      url(map.instrumental) ??
+      url(map.accompaniment) ??
+      url(map.backing) ??
+      url(map.other),
+  };
 }
 
 export interface AlignmentResult {

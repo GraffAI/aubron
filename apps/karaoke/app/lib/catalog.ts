@@ -3,7 +3,8 @@ import { join } from "node:path";
 
 import { daisySong } from "./daisy";
 import { parseLrc } from "./lrc";
-import type { LibraryEntry, Song } from "./types";
+import { getJson, isStorageConfigured } from "./storage";
+import type { LibraryEntry, Song, StoredLibraryEntry } from "./types";
 
 /**
  * The song collection = the built-in demo song + whatever the deployed library
@@ -57,8 +58,38 @@ async function loadLibrary(): Promise<Song[]> {
   return songs.filter((s) => s !== null);
 }
 
+/** Songs ingested into the private bucket; stems play via the authed proxy. */
+async function loadStoredLibrary(): Promise<Song[]> {
+  if (!isStorageConfigured()) return [];
+  let entries: StoredLibraryEntry[];
+  try {
+    entries = (await getJson<StoredLibraryEntry[]>("library/index.json")) ?? [];
+  } catch {
+    return []; // bucket unreachable: keep the rest of the library up
+  }
+  return entries.map((entry) => {
+    const lyrics = entry.lrc ? parseLrc(entry.lrc) : [];
+    return {
+      id: entry.id,
+      title: entry.title,
+      artist: entry.artist,
+      duration: entry.duration,
+      source: {
+        kind: "stems" as const,
+        urls: {
+          ...(entry.stems.vocals ? { vocals: `/api/stems/${entry.id}/vocals` } : {}),
+          instrumental: `/api/stems/${entry.id}/instrumental`,
+        },
+      },
+      lyrics,
+      wordTimed: lyrics.some((l) => l.words !== undefined),
+    };
+  });
+}
+
 export async function getSongs(): Promise<Song[]> {
-  return [daisySong, ...(await loadLibrary())];
+  const [files, stored] = await Promise.all([loadLibrary(), loadStoredLibrary()]);
+  return [daisySong, ...stored, ...files];
 }
 
 export async function getSong(id: string): Promise<Song | undefined> {

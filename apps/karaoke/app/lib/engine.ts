@@ -68,14 +68,14 @@ export class KaraokeEngine {
     this.offset = 0;
   }
 
-  async loadFromUrls(urls: { vocals: string; instrumental: string }): Promise<void> {
+  async loadFromUrls(urls: { vocals?: string; instrumental: string }): Promise<void> {
     const fetchStem = async (url: string) => {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`stem fetch failed: ${url} (${res.status})`);
       return this.ctx.decodeAudioData(await res.arrayBuffer());
     };
     const [vocals, instrumental] = await Promise.all([
-      fetchStem(urls.vocals),
+      urls.vocals ? fetchStem(urls.vocals) : Promise.resolve(null),
       fetchStem(urls.instrumental),
     ]);
     this.loadBuffers(vocals, instrumental);
