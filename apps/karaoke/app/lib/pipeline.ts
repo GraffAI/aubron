@@ -78,7 +78,8 @@ export async function startSeparation(audioUrl: string): Promise<SeparationStart
     return { started: false, reason: "REPLICATE_API_TOKEN not configured" };
   }
   // htdemucs two-stem mode: vocals + everything else. Pin the version via env
-  // so a model update never changes output shape underneath us.
+  // (the bare hash, not the owner/model: prefix) so a model update never
+  // changes output shape underneath us.
   const version = process.env.REPLICATE_DEMUCS_VERSION;
   if (!version) {
     return {
@@ -91,7 +92,9 @@ export async function startSeparation(audioUrl: string): Promise<SeparationStart
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       version,
-      input: { audio: audioUrl, stem: "vocals", output_format: "mp3" },
+      // ryan5453/demucs dialect: `two_stems` picks the karaoke split
+      // (output keys: vocals + no_vocals — see pickStems).
+      input: { audio: audioUrl, two_stems: "vocals", output_format: "mp3" },
     }),
   });
   if (!res.ok) {
