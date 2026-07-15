@@ -244,7 +244,10 @@ export function AddSong({ libraryEnabled }: { libraryEnabled: boolean }) {
       <input
         ref={inputRef}
         type="file"
-        accept="audio/*"
+        // iOS Safari greys out real audio files under a bare audio/* filter;
+        // explicit extensions make the Files picker allow them. Anything that
+        // slips through is still validated by the decode step above.
+        accept="audio/*,.mp3,.m4a,.aac,.wav,.flac,.ogg,.opus,.aiff"
         hidden
         onChange={(e) => {
           const file = e.target.files?.[0];
