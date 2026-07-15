@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+@theme {
+  --color-void: #05070a;
+  --color-ink: #e7ecf3;
+  --color-neon: #5eead4;
+  --font-display: "Avenir Next", "Segoe UI", ui-rounded, system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-void);
+  color: var(--color-ink);
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+}
