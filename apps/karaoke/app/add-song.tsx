@@ -22,6 +22,16 @@ type Phase =
   | { step: "added"; songId?: string }
   | { step: "failed"; message: string };
 
+/** Pull the server's error detail out of a failed API response. */
+async function apiError(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: string };
+    return body.error ?? `${fallback} (${res.status})`;
+  } catch {
+    return `${fallback} (${res.status})`;
+  }
+}
+
 /**
  * "Load in a lawfully acquired MP3": reads ID3 metadata locally, then either
  * sings it right now (session-local, audio never leaves the browser) or — when
@@ -103,14 +113,21 @@ export function AddSong({ libraryEnabled }: { libraryEnabled: boolean }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileName: draft.fileName, contentType: draft.contentType }),
       });
-      if (!presign.ok) throw new Error("upload not available");
+      if (!presign.ok) throw new Error(await apiError(presign, "upload not available"));
       const { key, url } = (await presign.json()) as { key: string; url: string };
+      // The one cross-origin request in the whole flow. A CORS miss surfaces
+      // as an opaque TypeError ("Load failed" on Safari) — translate it.
       const put = await fetch(url, {
         method: "PUT",
         headers: { "Content-Type": draft.contentType },
         body: draft.data,
-      });
-      if (!put.ok) throw new Error(`upload failed (${put.status})`);
+      }).catch(() => null);
+      if (!put) {
+        throw new Error(
+          `storage upload blocked — the bucket's CORS rule must allow PUT from ${window.location.origin}`,
+        );
+      }
+      if (!put.ok) throw new Error(`storage upload failed (${put.status})`);
 
       const start = await fetch("/api/ingest", {
         method: "POST",
@@ -122,7 +139,7 @@ export function AddSong({ libraryEnabled }: { libraryEnabled: boolean }) {
           durationSeconds: Math.round(draft.duration),
         }),
       });
-      if (!start.ok) throw new Error("ingest failed to start");
+      if (!start.ok) throw new Error(await apiError(start, "ingest failed to start"));
       let state = (await start.json()) as {
         jobId: string;
         status: string;
