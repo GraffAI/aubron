@@ -83,17 +83,17 @@ starter collection without any bucket at all.
 
 ## Environment
 
-| Variable                    | Purpose                                                                               |
-| --------------------------- | ------------------------------------------------------------------------------------- |
-| `KARAOKE_PASSCODE`          | Enables auth; also the session-cookie signing secret (rotating it logs everyone out). |
-| `STORAGE_ENDPOINT`          | S3-compatible endpoint (e.g. `https://<account>.r2.cloudflarestorage.com`).           |
-| `STORAGE_BUCKET`            | Bucket name. Keep it **private** — no public access, ever.                            |
-| `STORAGE_ACCESS_KEY_ID`     | Credentials scoped to that bucket.                                                    |
-| `STORAGE_SECRET_ACCESS_KEY` | —                                                                                     |
-| `STORAGE_REGION`            | Optional (default `us-east-1`; R2 uses `auto`).                                       |
-| `STORAGE_FORCE_PATH_STYLE`  | Set for R2/MinIO.                                                                     |
-| `REPLICATE_API_TOKEN`       | Enables the separation step of `/api/ingest`.                                         |
-| `REPLICATE_DEMUCS_VERSION`  | Pinned demucs model version id on Replicate.                                          |
+| Variable                    | Purpose                                                                                                                                          |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `KARAOKE_PASSCODE`          | Enables auth; also the session-cookie signing secret (rotating it logs everyone out).                                                            |
+| `STORAGE_ENDPOINT`          | S3-compatible endpoint (e.g. `https://<account>.r2.cloudflarestorage.com`).                                                                      |
+| `STORAGE_BUCKET`            | Bucket name. Keep it **private** — no public access, ever.                                                                                       |
+| `STORAGE_ACCESS_KEY_ID`     | Credentials scoped to that bucket.                                                                                                               |
+| `STORAGE_SECRET_ACCESS_KEY` | —                                                                                                                                                |
+| `STORAGE_REGION`            | Optional (default `us-east-1`; R2 uses `auto`).                                                                                                  |
+| `STORAGE_FORCE_PATH_STYLE`  | Set for R2/MinIO.                                                                                                                                |
+| `REPLICATE_API_TOKEN`       | Enables the separation step of `/api/ingest`.                                                                                                    |
+| `REPLICATE_DEMUCS_VERSION`  | Pinned demucs version: the bare hash after the colon in `owner/model:hash`. The input dialect matches `ryan5453/demucs` (`two_stems: "vocals"`). |
 
 ## Develop
 
