@@ -57,6 +57,21 @@ finalizes: stems are copied into the bucket, the manifest is updated, and the
 song appears in the collection. With no separation provider the song still
 lands (full mix as backing, vocal fader inert) and can be re-ingested later.
 
+**Nothing is lost to separation.** Demucs's two stems don't sum exactly back
+to the mix (the model leaves a residual, and stems are re-encoded), so the
+untouched original is always stored as a `full` stem and the player's vocal
+fader is a linear **full ↔ instrumental crossfade**: at max you hear the
+original bit-exact, at zero pure instrumental. The vocal stem is still kept —
+it's the input for forced alignment and a future practice mode.
+
+**Every ingest is diagnosable.** A per-song `ingest.json` report records the
+lyric lookup (query, provider endpoints hit, outcome or error) and the
+separation note. The player's ⓘ panel renders it — phone-friendly — and can
+**re-run the lyric search with corrected artist/title**
+(`POST /api/songs/<id>/lyrics`), since metadata mismatch is the usual cause of
+a miss. Library rows badge each song: `word-timed` / `timed` / `untimed` /
+`no lyrics`.
+
 ## Storage (the private library)
 
 The system of record is a **private S3-compatible bucket** — Cloudflare R2

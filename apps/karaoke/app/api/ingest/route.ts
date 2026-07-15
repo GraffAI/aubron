@@ -44,11 +44,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const lyrics = await findLyrics(
-    body.artist.trim(),
-    body.title.trim(),
-    body.durationSeconds,
-  ).catch(() => null);
+  const lyrics = await findLyrics(body.artist.trim(), body.title.trim(), body.durationSeconds);
 
   const job: IngestJob = {
     id: crypto.randomUUID(),
@@ -56,12 +52,12 @@ export async function POST(request: NextRequest) {
     title: body.title.trim(),
     artist: body.artist.trim(),
     duration: body.durationSeconds ?? 0,
-    lrc: lyrics?.synced ?? null,
+    lrc: lyrics.synced,
+    lyrics,
     predictionUrl: null,
     status: "separating",
   };
 
-  let separationNote = "";
   if (isSeparationConfigured()) {
     // The provider gets a short-lived read URL for this one original —
     // the only time anything in the bucket is reachable from outside.
@@ -70,9 +66,9 @@ export async function POST(request: NextRequest) {
       reason: err instanceof Error ? err.message : "separation request failed",
     }));
     if (start.started) job.predictionUrl = start.job.predictionUrl;
-    else separationNote = start.reason;
+    else job.separationNote = start.reason;
   } else {
-    separationNote = "no separation provider configured — full mix stored as backing";
+    job.separationNote = "no separation provider configured — full mix stored as backing";
   }
 
   if (!job.predictionUrl) {
@@ -82,8 +78,8 @@ export async function POST(request: NextRequest) {
       jobId: done.id,
       status: done.status,
       songId: done.songId,
-      lyrics: job.lrc ? "synced" : "none",
-      separation: `skipped: ${separationNote}`,
+      lyrics: lyrics.status,
+      separation: `skipped: ${job.separationNote}`,
     });
   }
 
@@ -91,6 +87,6 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     jobId: job.id,
     status: job.status,
-    lyrics: job.lrc ? "synced" : "none",
+    lyrics: lyrics.status,
   });
 }

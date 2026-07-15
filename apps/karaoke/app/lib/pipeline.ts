@@ -22,37 +22,61 @@
  * object storage) is the deploy step described in the README.
  */
 
-export interface LyricsResult {
-  synced: string | null; // LRC text with timestamps
-  plain: string | null;
-  source: string;
-}
+import type { LyricsReport } from "./types";
 
+type LrclibHit = { syncedLyrics: string | null; plainLyrics: string | null };
+
+/**
+ * Timed-lyrics lookup, reported in full: every provider request and its
+ * outcome lands in `attempts`, and failures become a status instead of an
+ * exception — so "did lyrics work, and why not" is always answerable later.
+ */
 export async function findLyrics(
   artist: string,
   title: string,
   durationSeconds?: number,
-): Promise<LyricsResult | null> {
+): Promise<LyricsReport> {
+  const report: LyricsReport = {
+    status: "not-found",
+    synced: null,
+    plain: null,
+    source: null,
+    query: { artist, title, ...(durationSeconds ? { duration: Math.round(durationSeconds) } : {}) },
+    attempts: [],
+  };
   const headers = { "User-Agent": "aubron-karaoke (https://github.com/GraffAI/aubron)" };
-  const get = new URL("https://lrclib.net/api/get");
-  get.searchParams.set("artist_name", artist);
-  get.searchParams.set("track_name", title);
-  if (durationSeconds) get.searchParams.set("duration", String(Math.round(durationSeconds)));
-  const exact = await fetch(get, { headers });
-  if (exact.ok) {
-    const hit = (await exact.json()) as { syncedLyrics: string | null; plainLyrics: string | null };
-    return { synced: hit.syncedLyrics, plain: hit.plainLyrics, source: "lrclib:get" };
+  const finish = (hit: LrclibHit, source: string): LyricsReport => ({
+    ...report,
+    status: hit.syncedLyrics ? "synced" : hit.plainLyrics ? "plain-only" : "not-found",
+    synced: hit.syncedLyrics,
+    plain: hit.plainLyrics,
+    source,
+  });
+
+  try {
+    // Exact match first: artist + title (+ duration to pick the right version).
+    const get = new URL("https://lrclib.net/api/get");
+    get.searchParams.set("artist_name", artist);
+    get.searchParams.set("track_name", title);
+    if (durationSeconds) get.searchParams.set("duration", String(Math.round(durationSeconds)));
+    const exact = await fetch(get, { headers });
+    report.attempts.push(`GET lrclib.net/api/get → ${exact.status}`);
+    if (exact.ok) return finish((await exact.json()) as LrclibHit, "lrclib:get");
+
+    // Fuzzy fallback: search and prefer a synced result.
+    const search = new URL("https://lrclib.net/api/search");
+    search.searchParams.set("artist_name", artist);
+    search.searchParams.set("track_name", title);
+    const res = await fetch(search, { headers });
+    const hits = res.ok ? ((await res.json()) as LrclibHit[]) : [];
+    report.attempts.push(`GET lrclib.net/api/search → ${res.status} (${hits.length} hits)`);
+    const best = hits.find((h) => h.syncedLyrics) ?? hits[0];
+    if (best) return finish(best, "lrclib:search");
+    return report;
+  } catch (err) {
+    report.attempts.push(`provider unreachable: ${err instanceof Error ? err.message : "error"}`);
+    return { ...report, status: "error" };
   }
-  // Fuzzy fallback: search and prefer a synced result.
-  const search = new URL("https://lrclib.net/api/search");
-  search.searchParams.set("artist_name", artist);
-  search.searchParams.set("track_name", title);
-  const res = await fetch(search, { headers });
-  if (!res.ok) return null;
-  const hits = (await res.json()) as { syncedLyrics: string | null; plainLyrics: string | null }[];
-  const best = hits.find((h) => h.syncedLyrics) ?? hits[0];
-  if (!best) return null;
-  return { synced: best.syncedLyrics, plain: best.plainLyrics, source: "lrclib:search" };
 }
 
 export interface SeparationJob {

@@ -1,10 +1,20 @@
 /**
  * KaraokeEngine — one Web Audio graph for the whole show:
  *
- *   vocals stem ──► vocalsGain ─┐
- *   instrumental ► instrGain  ─┼─► master ─► analyser ─► speakers
- *   mic 1 ───► gain ─► dry+echo ┤
- *   mic N ───► gain ─► dry+echo ┘
+ *   voice leg ───► vocalsLeg ─┐
+ *   backing leg ─► instLeg  ──┼─► trackGain ─► master ─► speakers
+ *   mic 1 ───► gain ─► dry+echo ─────────────► master
+ *   mic N ───► gain ─► dry+echo ─────────────► master
+ *
+ * Two track modes:
+ * - "stems": voice leg = separated vocals, backing leg = instrumental; the
+ *   two faders are independent gains (the demo song works this way).
+ * - "crossfade": voice leg = the UNTOUCHED full mix, backing leg = the
+ *   separated instrumental. The vocal fader v drives a complementary linear
+ *   crossfade (full×v + instrumental×(1−v)) — linear, not equal-power,
+ *   because the signals are correlated. At v=1 you hear the original song
+ *   bit-exact, so separation residue can never lose content; at v=0 it's
+ *   pure instrumental. The backing fader becomes overall track volume.
  *
  * Multiple simultaneous microphones ARE supported on the web: each mic is its
  * own getUserMedia() stream keyed by deviceId, so duet mode is just two
@@ -35,8 +45,16 @@ interface MicNodes {
 export class KaraokeEngine {
   readonly ctx: AudioContext;
   private master: GainNode;
-  private stemGains: Record<keyof StemGains, GainNode>;
-  private buffers: { vocals: AudioBuffer | null; instrumental: AudioBuffer } | null = null;
+  private vocalsLeg: GainNode;
+  private instLeg: GainNode;
+  private trackGain: GainNode;
+  private buffers: {
+    vocals: AudioBuffer | null;
+    instrumental: AudioBuffer;
+    full: AudioBuffer | null;
+  } | null = null;
+  private vocalsValue = 0.25; // karaoke: guide vocals ducked by default
+  private backingValue = 1;
   private sources: AudioBufferSourceNode[] = [];
   private playGeneration = 0;
   private startedAt = 0; // ctx.currentTime when playback began
@@ -51,34 +69,50 @@ export class KaraokeEngine {
     this.ctx = new AudioContext({ latencyHint: "interactive" });
     this.master = new GainNode(this.ctx, { gain: 1 });
     this.master.connect(this.ctx.destination);
-    this.stemGains = {
-      vocals: new GainNode(this.ctx, { gain: 0.25 }), // karaoke: vocals ducked by default
-      instrumental: new GainNode(this.ctx, { gain: 1 }),
-    };
-    this.stemGains.vocals.connect(this.master);
-    this.stemGains.instrumental.connect(this.master);
+    this.trackGain = new GainNode(this.ctx, { gain: 1 });
+    this.trackGain.connect(this.master);
+    this.vocalsLeg = new GainNode(this.ctx, { gain: this.vocalsValue });
+    this.instLeg = new GainNode(this.ctx, { gain: 1 });
+    this.vocalsLeg.connect(this.trackGain);
+    this.instLeg.connect(this.trackGain);
+  }
+
+  /** True when the vocal fader is a full-mix ↔ instrumental crossfade. */
+  get crossfade(): boolean {
+    return this.buffers?.full != null;
   }
 
   // ── stems ────────────────────────────────────────────────────────────────
 
-  loadBuffers(vocals: AudioBuffer | null, instrumental: AudioBuffer): void {
+  loadBuffers(
+    vocals: AudioBuffer | null,
+    instrumental: AudioBuffer,
+    full: AudioBuffer | null = null,
+  ): void {
     this.stop();
-    this.buffers = { vocals, instrumental };
+    this.buffers = { vocals, instrumental, full };
     this.duration = instrumental.duration;
     this.offset = 0;
+    this.applyTrackGains(true);
   }
 
-  async loadFromUrls(urls: { vocals?: string; instrumental: string }): Promise<void> {
+  async loadFromUrls(urls: {
+    vocals?: string;
+    instrumental: string;
+    full?: string;
+  }): Promise<void> {
     const fetchStem = async (url: string) => {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`stem fetch failed: ${url} (${res.status})`);
       return this.ctx.decodeAudioData(await res.arrayBuffer());
     };
-    const [vocals, instrumental] = await Promise.all([
-      urls.vocals ? fetchStem(urls.vocals) : Promise.resolve(null),
+    // With a full mix available the vocal stem isn't played — don't fetch it.
+    const [instrumental, full, vocals] = await Promise.all([
       fetchStem(urls.instrumental),
+      urls.full ? fetchStem(urls.full) : Promise.resolve(null),
+      !urls.full && urls.vocals ? fetchStem(urls.vocals) : Promise.resolve(null),
     ]);
-    this.loadBuffers(vocals, instrumental);
+    this.loadBuffers(vocals, instrumental, full);
   }
 
   /** A local file has no separated stems: the full mix rides the instrumental fader. */
@@ -118,8 +152,9 @@ export class KaraokeEngine {
       }
       this.sources.push(src);
     };
-    if (this.buffers.vocals) start(this.buffers.vocals, this.stemGains.vocals, false);
-    start(this.buffers.instrumental, this.stemGains.instrumental, true);
+    if (this.buffers.full) start(this.buffers.full, this.vocalsLeg, false);
+    else if (this.buffers.vocals) start(this.buffers.vocals, this.vocalsLeg, false);
+    start(this.buffers.instrumental, this.instLeg, true);
     this.startedAt = this.ctx.currentTime;
     this._playing = true;
   }
@@ -151,7 +186,27 @@ export class KaraokeEngine {
   }
 
   setStemGain(stem: keyof StemGains, value: number): void {
-    this.stemGains[stem].gain.setTargetAtTime(value, this.ctx.currentTime, 0.02);
+    if (stem === "vocals") this.vocalsValue = value;
+    else this.backingValue = value;
+    this.applyTrackGains(false);
+  }
+
+  /** Route the two fader values into the graph for the current mode. */
+  private applyTrackGains(immediate: boolean): void {
+    const set = (node: GainNode, value: number) => {
+      if (immediate) node.gain.value = value;
+      else node.gain.setTargetAtTime(value, this.ctx.currentTime, 0.02);
+    };
+    if (this.crossfade) {
+      // full×v + instrumental×(1−v), both under the track volume.
+      set(this.vocalsLeg, this.vocalsValue);
+      set(this.instLeg, 1 - this.vocalsValue);
+      set(this.trackGain, this.backingValue);
+    } else {
+      set(this.vocalsLeg, this.vocalsValue);
+      set(this.instLeg, this.backingValue);
+      set(this.trackGain, 1);
+    }
   }
 
   setMasterGain(value: number): void {

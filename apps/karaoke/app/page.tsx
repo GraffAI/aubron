@@ -43,7 +43,22 @@ export default async function Library() {
                   <span className="rounded-full border border-neon/30 px-2 py-0.5 text-[10px] uppercase tracking-wide text-neon/80">
                     word-timed
                   </span>
-                ) : null}
+                ) : song.lyrics.length > 0 ? (
+                  <span className="rounded-full border border-white/20 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/50">
+                    timed
+                  </span>
+                ) : (
+                  <span
+                    className="rounded-full border border-amber-400/30 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-300/80"
+                    title={
+                      song.lyricsStatus === "plain-only"
+                        ? "lyrics found but untimed"
+                        : "no lyrics found"
+                    }
+                  >
+                    {song.lyricsStatus === "plain-only" ? "untimed" : "no lyrics"}
+                  </span>
+                )}
                 <span className="text-xs tabular-nums text-white/40">
                   {formatClock(song.duration)}
                 </span>
