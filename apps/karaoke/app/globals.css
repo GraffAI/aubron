@@ -15,6 +15,25 @@ html,
 body {
   background: var(--color-void);
   color: var(--color-ink);
+  /* Anything that pokes past the viewport shows up as phantom margins and a
+     zoomed-out page on phones — clip it instead. */
+  overflow-x: clip;
+}
+
+html {
+  /* Kill iOS double-tap zoom (and the 300ms tap delay) without disabling
+     pinch zoom — accessibility keeps working. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* iOS Safari auto-zooms the whole page when focusing any input rendered
+   below 16px — the classic "why is my page stuck zoomed in" bug. Keep every
+   text field at 16px minimum; sliders don't trigger it. */
+input:not([type="range"]),
+textarea,
+select {
+  font-size: max(1rem, 1em);
 }
 
 * {

@@ -74,8 +74,21 @@ public and no long-lived URLs exist:
   can carry a poll forward).
 
 Setup (R2 example): create a bucket, create an API token scoped to it, set the
-`STORAGE_*` variables below, and add a CORS rule allowing `PUT` from the app's
-origin (needed for direct-to-bucket uploads).
+`STORAGE_*` variables below, and add a CORS rule allowing `PUT` from **every
+origin you actually browse the app on** — the custom domain AND the
+`*.vercel.app` URL if you use it. A missed origin surfaces as Safari's opaque
+"Load failed" on upload (the app now names the origin to add).
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://karaoke.aubron.io", "https://karaoke-graff.vercel.app"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["content-type"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
 
 There is also a static tier — `public/library/` with an `index.json`, baked
 into the deploy and served behind the same middleware — useful for a fixed
