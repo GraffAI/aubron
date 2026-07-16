@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { audioExt, slugify } from "./ingest";
 import { parseLrc } from "./lrc";
@@ -85,5 +85,46 @@ describe("whisperxToLrc", () => {
     expect(whisperxToLrc(null)).toBeNull();
     expect(whisperxToLrc({ transcript: "hi" })).toBeNull();
     expect(whisperxToLrc({ segments: [] })).toBeNull();
+  });
+});
+
+import { buildSeparationInput } from "./pipeline";
+
+describe("buildSeparationInput", () => {
+  afterEach(() => {
+    delete process.env.REPLICATE_SEPARATION_INPUT;
+  });
+
+  it("defaults to the demucs two-stem dialect", () => {
+    expect(buildSeparationInput("https://x/a.mp3")).toEqual({
+      audio: "https://x/a.mp3",
+      two_stems: "vocals",
+      output_format: "mp3",
+    });
+  });
+
+  it("merges quality overrides on top", () => {
+    process.env.REPLICATE_SEPARATION_INPUT = '{"model_name":"htdemucs_ft","shifts":2}';
+    expect(buildSeparationInput("u")).toMatchObject({
+      audio: "u",
+      model_name: "htdemucs_ft",
+      shifts: 2,
+      two_stems: "vocals",
+    });
+  });
+
+  it("supports a different dialect: $AUDIO_URL substitution and null deletes", () => {
+    process.env.REPLICATE_SEPARATION_INPUT =
+      '{"input_audio":"$AUDIO_URL","audio":null,"two_stems":null,"stem_type":"vocals"}';
+    expect(buildSeparationInput("https://signed")).toEqual({
+      input_audio: "https://signed",
+      stem_type: "vocals",
+      output_format: "mp3",
+    });
+  });
+
+  it("ignores malformed JSON rather than breaking separation", () => {
+    process.env.REPLICATE_SEPARATION_INPUT = "{not json";
+    expect(buildSeparationInput("u").audio).toBe("u");
   });
 });

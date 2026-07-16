@@ -96,14 +96,44 @@ export function isSeparationConfigured(): boolean {
   return Boolean(process.env.REPLICATE_API_TOKEN && process.env.REPLICATE_DEMUCS_VERSION);
 }
 
+/**
+ * Build the separation request input. Defaults speak the ryan5453/demucs
+ * dialect (`two_stems` picks the karaoke split; outputs vocals + no_vocals —
+ * see pickStems). REPLICATE_SEPARATION_INPUT (a JSON object) merges on top:
+ * quality knobs for the same deployment (`{"model_name":"htdemucs_ft",
+ * "shifts":2}` is the recommended bump — the DEFAULT htdemucs model is the
+ * fast baseline, not the best one), or a whole different input dialect for a
+ * different pinned deployment. In overrides, the string "$AUDIO_URL" becomes
+ * the presigned audio URL, and a null value deletes a default key.
+ */
+export function buildSeparationInput(audioUrl: string): Record<string, unknown> {
+  const input: Record<string, unknown> = {
+    audio: audioUrl,
+    two_stems: "vocals",
+    output_format: "mp3",
+  };
+  const raw = process.env.REPLICATE_SEPARATION_INPUT;
+  if (raw) {
+    try {
+      const overrides = JSON.parse(raw) as Record<string, unknown>;
+      for (const [key, value] of Object.entries(overrides)) {
+        if (value === null) delete input[key];
+        else input[key] = value === "$AUDIO_URL" ? audioUrl : value;
+      }
+    } catch {
+      // A malformed override must not take separation down — defaults win.
+    }
+  }
+  return input;
+}
+
 export async function startSeparation(audioUrl: string): Promise<SeparationStart> {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) {
     return { started: false, reason: "REPLICATE_API_TOKEN not configured" };
   }
-  // htdemucs two-stem mode: vocals + everything else. Pin the version via env
-  // (the bare hash, not the owner/model: prefix) so a model update never
-  // changes output shape underneath us.
+  // Pin the version via env (the bare hash, not the owner/model: prefix) so a
+  // model update never changes output shape underneath us.
   const version = process.env.REPLICATE_DEMUCS_VERSION;
   if (!version) {
     return {
@@ -114,12 +144,7 @@ export async function startSeparation(audioUrl: string): Promise<SeparationStart
   const res = await fetch(`${replicateBase()}/v1/predictions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      version,
-      // ryan5453/demucs dialect: `two_stems` picks the karaoke split
-      // (output keys: vocals + no_vocals — see pickStems).
-      input: { audio: audioUrl, two_stems: "vocals", output_format: "mp3" },
-    }),
+    body: JSON.stringify({ version, input: buildSeparationInput(audioUrl) }),
   });
   if (!res.ok) {
     return { started: false, reason: `replicate error ${res.status}: ${await res.text()}` };
