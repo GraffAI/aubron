@@ -92,9 +92,11 @@ export function AddSong({
   const [forceAlign, setForceAlign] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [note, setNote] = useState("");
-  // Elapsed-seconds ticker for the active long-running step.
+  // Elapsed-seconds ticker for the active long-running step. Each step's
+  // start time is recorded ONCE, on first activation — resetting it on every
+  // poll update is what made the timer bounce instead of climb.
   const [, setTick] = useState(0);
-  const stepStartRef = useRef(0);
+  const stepStartsRef = useRef<Partial<Record<StepId, number>>>({});
 
   useEffect(() => {
     if (phase.step !== "working") return;
@@ -103,10 +105,13 @@ export function AddSong({
   }, [phase.step]);
 
   const setStep = (id: StepId, state: StepState, detail = "") => {
-    if (state === "active") stepStartRef.current = Date.now();
+    if (state === "active") stepStartsRef.current[id] ??= Date.now();
     setSteps((all) => all.map((s) => (s.id === id ? { ...s, state, detail } : s)));
   };
-  const elapsed = () => `${Math.round((Date.now() - stepStartRef.current) / 1000)}s`;
+  const elapsedFor = (id: StepId) => {
+    const start = stepStartsRef.current[id];
+    return start === undefined ? "" : `${Math.max(0, Math.round((Date.now() - start) / 1000))}s`;
+  };
 
   const acceptFile = async (file: File) => {
     setNote("");
@@ -179,7 +184,7 @@ export function AddSong({
         detail: alignmentEnabled ? "" : "not configured",
       },
     ]);
-    stepStartRef.current = Date.now();
+    stepStartsRef.current = { upload: Date.now() };
     try {
       const presign = await fetch("/api/upload", {
         method: "POST",
@@ -247,11 +252,10 @@ export function AddSong({
       while (state.status === "separating" || state.status === "aligning") {
         if (state.status !== lastStatus) {
           // separating → aligning transition
-          setStep("separate", "done");
+          setStep("separate", "done", elapsedFor("separate"));
           setStep("align", "active");
           lastStatus = state.status;
         }
-        setStep(state.status === "separating" ? "separate" : "align", "active", elapsed());
         await new Promise((resolve) => setTimeout(resolve, 4000));
         const poll = await fetch(`/api/ingest/${state.jobId}`);
         if (!poll.ok) throw new Error("lost track of the ingest job");
@@ -259,7 +263,9 @@ export function AddSong({
       }
       if (state.status !== "done") throw new Error(state.error ?? "ingest failed");
       setSteps((all) =>
-        all.map((s) => (s.state === "active" ? { ...s, state: "done", detail: elapsed() } : s)),
+        all.map((s) =>
+          s.state === "active" ? { ...s, state: "done", detail: elapsedFor(s.id) } : s,
+        ),
       );
       setPhase({ step: "added", songId: state.songId });
       setDraft(null);
@@ -391,7 +397,9 @@ export function AddSong({
               <span className={s.state === "pending" ? "text-white/30" : "text-white/80"}>
                 {s.label}
               </span>
-              <span className="min-w-0 flex-1 truncate text-right text-white/40">{s.detail}</span>
+              <span className="min-w-0 flex-1 truncate text-right text-white/40">
+                {s.detail || (s.state === "active" ? elapsedFor(s.id) : "")}
+              </span>
             </li>
           ))}
         </ul>
