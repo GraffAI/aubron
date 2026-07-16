@@ -129,6 +129,8 @@ export async function finalizeJob(
     duration: job.duration,
     stems,
     lrc: job.lrc,
+    providerLrc: job.lrc,
+    ...(job.lrc ? { lrcSource: "provider" as const } : {}),
     // Stored LRC wins the badge: a reprocess whose lookup missed still keeps
     // (and should report) the working lyrics it carried over.
     lyricsStatus: job.lrc ? "synced" : (job.lyrics?.status ?? "not-found"),
@@ -159,8 +161,9 @@ export async function finalizeJob(
 
 /**
  * Land a WhisperX result (or its failure note) on an existing song: a
- * successful alignment replaces the stored lyrics with the word-timed LRC;
- * a failure only annotates the report — the song keeps whatever it had.
+ * successful alignment stores the AI timing and makes it active — the
+ * provider timing stays on the entry so the two are switchable. A failure
+ * only annotates the report; the song keeps whatever it had.
  */
 export async function applyAlignment(
   songId: string,
@@ -170,7 +173,9 @@ export async function applyAlignment(
   const entries = (await getJson<StoredLibraryEntry[]>("library/index.json")) ?? [];
   const entry = entries.find((e) => e.id === songId);
   if (entry && lrc) {
+    entry.aiLrc = lrc;
     entry.lrc = lrc;
+    entry.lrcSource = "ai";
     entry.lyricsStatus = "synced";
     await putJson("library/index.json", entries);
   }

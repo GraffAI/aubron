@@ -13,6 +13,9 @@ interface Manifest {
   artist: string;
   lrc: string | null;
   lyricsStatus: LyricsStatus;
+  lrcSource?: "provider" | "ai";
+  hasProvider: boolean;
+  hasAi: boolean;
   urls: { vocals?: string; instrumental: string; full?: string };
 }
 
@@ -86,6 +89,22 @@ export function IngestPreview({ songId }: { songId: string }) {
     }
   };
 
+  /** Swap active timing (provider ↔ AI) server-side; audio keeps playing. */
+  const switchSource = async (source: "provider" | "ai") => {
+    if (!manifest || manifest.lrcSource === source) return;
+    const res = await fetch(`/api/songs/${songId}/lyrics/source`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source }),
+    });
+    if (!res.ok) return;
+    const fresh = await fetch(`/api/songs/${songId}/manifest`);
+    if (!fresh.ok) return;
+    const m = (await fresh.json()) as Manifest;
+    setManifest(m);
+    setLines(m.lrc ? parseLrc(m.lrc) : []);
+  };
+
   if (error) return <p className="text-xs text-red-400">{error}</p>;
 
   const current = lineIndexAt(lines, time);
@@ -134,6 +153,26 @@ export function IngestPreview({ songId }: { songId: string }) {
             )}
           </p>
           {next ? <p className="truncate text-sm text-white/30">{next.text}</p> : null}
+        </div>
+      ) : null}
+
+      {manifest?.hasProvider && manifest.hasAi ? (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-white/50">Timing:</span>
+          {(["ai", "provider"] as const).map((source) => (
+            <button
+              key={source}
+              onClick={() => void switchSource(source)}
+              className={`rounded-full border px-2.5 py-1 transition ${
+                manifest.lrcSource === source
+                  ? "border-neon bg-neon/15 text-neon"
+                  : "border-white/15 text-white/50 hover:text-white"
+              }`}
+            >
+              {source === "ai" ? "AI (WhisperX)" : "Provider (LRCLIB)"}
+            </button>
+          ))}
+          <span className="text-white/30">— compare, keep whichever sounds right</span>
         </div>
       ) : null}
 

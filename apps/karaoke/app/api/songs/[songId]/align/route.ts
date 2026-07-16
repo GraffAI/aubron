@@ -3,15 +3,17 @@ import type { NextRequest } from "next/server";
 
 import { writeJob } from "../../../../lib/ingest";
 import { isAlignmentConfigured, startAlignment } from "../../../../lib/pipeline";
+import { lyricsToPlainLines } from "../../../../lib/retime";
 import { getJson, isStorageConfigured, presignGet } from "../../../../lib/storage";
 import type { IngestJob, StoredLibraryEntry } from "../../../../lib/types";
 
 /**
  * Word-time an existing song with WhisperX — the "I got an LRCLIB hit but I
  * want word-level timing" (or "line timing looks off") button. Runs over the
- * stored vocal stem; poll the returned job on GET /api/ingest/<jobId>. On
- * success the word-timed LRC replaces the stored lyrics; on failure the song
- * keeps what it had.
+ * stored vocal stem and, crucially, SEEDS with the song's existing lyric
+ * text: Whisper contributes timestamps only (timing transplant), it does not
+ * replace the words. Poll the returned job on GET /api/ingest/<jobId>; on
+ * failure the song keeps what it had.
  */
 export async function POST(
   _request: NextRequest,
@@ -41,6 +43,7 @@ export async function POST(
   if (!start.started) {
     return NextResponse.json({ error: start.reason }, { status: 502 });
   }
+  const seedText = entry.providerLrc ?? entry.lrc;
   const job: IngestJob = {
     id: crypto.randomUUID(),
     key: entry.stems.vocals,
@@ -50,6 +53,7 @@ export async function POST(
     lrc: entry.lrc,
     predictionUrl: null,
     align: true,
+    seedPlain: seedText ? lyricsToPlainLines(seedText).join("\n") : null,
     alignPredictionUrl: start.job.predictionUrl,
     songId,
     targetSongId: songId,
