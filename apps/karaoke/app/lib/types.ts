@@ -19,20 +19,22 @@ export interface LyricLine {
   words?: TimedWord[];
 }
 
-export type StemKind = "vocals" | "instrumental";
+export type StemKind = "vocals" | "instrumental" | "full";
 
 /**
  * Where a song's audio comes from.
  * - `builtin`  — synthesized locally (the public-domain demo song).
- * - `stems`    — separated stem files, the real karaoke experience. `vocals`
- *                is optional: a library entry ingested before a separation
- *                provider was configured plays its full mix as backing.
+ * - `stems`    — separated stem files, the real karaoke experience. When
+ *                `full` (the untouched original) is present, the player
+ *                crossfades full ↔ instrumental so the vocal fader at max is
+ *                bit-exact the real song — separation residue can't lose
+ *                content. `vocals` is kept for alignment/practice use.
  * - `local`    — a file the user dropped this session (no separation; the
  *                full mix plays as "instrumental" and the vocals fader is inert).
  */
 export type SongSource =
   | { kind: "builtin"; id: "daisy-bell" }
-  | { kind: "stems"; urls: { vocals?: string; instrumental: string } }
+  | { kind: "stems"; urls: { vocals?: string; instrumental: string; full?: string } }
   | { kind: "local"; objectUrl: string };
 
 export interface Song {
@@ -45,6 +47,8 @@ export interface Song {
   lyrics: LyricLine[];
   /** Set when lyrics carry word-level times (enhanced LRC). */
   wordTimed: boolean;
+  /** Lyric-pipeline outcome for library badges (stored songs only). */
+  lyricsStatus?: LyricsStatus;
 }
 
 /** Entry in a deployed library manifest (`public/library/index.json`). */
@@ -67,10 +71,37 @@ export interface StoredLibraryEntry {
   title: string;
   artist: string;
   duration: number;
-  stems: { vocals?: string; instrumental: string };
+  stems: { vocals?: string; instrumental: string; full?: string };
   /** LRC text inlined so the whole library is one JSON read. */
   lrc: string | null;
+  /** Outcome of the lyric lookup, for at-a-glance library badges. */
+  lyricsStatus?: LyricsStatus;
   addedAt: string;
+}
+
+export type LyricsStatus = "synced" | "plain-only" | "not-found" | "error";
+
+/** Full account of one lyric lookup — stored in the per-song ingest report
+ *  so "did lyrics work, and if not why" is answerable from any device. */
+export interface LyricsReport {
+  status: LyricsStatus;
+  synced: string | null;
+  plain: string | null;
+  /** Which provider path produced the result, e.g. "lrclib:get". */
+  source: string | null;
+  query: { artist: string; title: string; duration?: number };
+  /** One line per provider request, e.g. "GET lrclib.net/api/get → 404". */
+  attempts: string[];
+}
+
+/** Per-song pipeline report, stored at `library/<songId>/ingest.json`. */
+export interface IngestReport {
+  jobId: string;
+  originalKey: string;
+  addedAt: string;
+  lyrics: LyricsReport | null;
+  separation: { used: boolean; note: string };
+  stems: { vocals?: string; instrumental: string; full?: string };
 }
 
 /** Ingest job state, persisted in the bucket (`jobs/<id>.json`) so any
@@ -83,8 +114,14 @@ export interface IngestJob {
   artist: string;
   duration: number;
   lrc: string | null;
+  /** Full lyric-lookup report (absent on jobs from older deploys). */
+  lyrics?: LyricsReport | null;
   /** Separation prediction URL to poll, or null when running without one. */
   predictionUrl: string | null;
+  /** Why separation was skipped, when it was. */
+  separationNote?: string;
+  /** Reprocess runs update an existing song instead of minting a new id. */
+  targetSongId?: string;
   status: "separating" | "done" | "error";
   songId?: string;
   error?: string;

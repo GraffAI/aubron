@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-import { finalizeJob, writeJob } from "../../lib/ingest";
-import { findLyrics, isSeparationConfigured, startSeparation } from "../../lib/pipeline";
-import { isStorageConfigured, presignGet } from "../../lib/storage";
+import { launchJob } from "../../lib/ingest";
+import { findLyrics } from "../../lib/pipeline";
+import { isStorageConfigured } from "../../lib/storage";
 import type { IngestJob } from "../../lib/types";
 
 // Finalizing may download + re-upload stems; give the function room.
@@ -44,11 +44,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const lyrics = await findLyrics(
-    body.artist.trim(),
-    body.title.trim(),
-    body.durationSeconds,
-  ).catch(() => null);
+  const lyrics = await findLyrics(body.artist.trim(), body.title.trim(), body.durationSeconds);
 
   const job: IngestJob = {
     id: crypto.randomUUID(),
@@ -56,41 +52,18 @@ export async function POST(request: NextRequest) {
     title: body.title.trim(),
     artist: body.artist.trim(),
     duration: body.durationSeconds ?? 0,
-    lrc: lyrics?.synced ?? null,
+    lrc: lyrics.synced,
+    lyrics,
     predictionUrl: null,
     status: "separating",
   };
 
-  let separationNote = "";
-  if (isSeparationConfigured()) {
-    // The provider gets a short-lived read URL for this one original —
-    // the only time anything in the bucket is reachable from outside.
-    const start = await startSeparation(await presignGet(job.key)).catch((err: unknown) => ({
-      started: false as const,
-      reason: err instanceof Error ? err.message : "separation request failed",
-    }));
-    if (start.started) job.predictionUrl = start.job.predictionUrl;
-    else separationNote = start.reason;
-  } else {
-    separationNote = "no separation provider configured — full mix stored as backing";
-  }
-
-  if (!job.predictionUrl) {
-    // Nothing to wait for: finalize now with the original as the backing track.
-    const done = await finalizeJob(job, {});
-    return NextResponse.json({
-      jobId: done.id,
-      status: done.status,
-      songId: done.songId,
-      lyrics: job.lrc ? "synced" : "none",
-      separation: `skipped: ${separationNote}`,
-    });
-  }
-
-  await writeJob(job);
+  const launched = await launchJob(job);
   return NextResponse.json({
-    jobId: job.id,
-    status: job.status,
-    lyrics: job.lrc ? "synced" : "none",
+    jobId: launched.id,
+    status: launched.status,
+    songId: launched.songId,
+    lyrics: lyrics.status,
+    ...(launched.separationNote ? { separation: `skipped: ${launched.separationNote}` } : {}),
   });
 }

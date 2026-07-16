@@ -10,6 +10,7 @@ import { formatClock } from "./lib/lrc";
 import type { Song } from "./lib/types";
 import { LyricsView } from "./lyrics-view";
 import { RetroScreen } from "./retro-screen";
+import { SongInfo } from "./song-info";
 
 type Status = "loading" | "ready" | "error";
 
@@ -140,7 +141,10 @@ export function Player({ song: serverSong, songId }: { song: Song | null; songId
 
   const hasVocalStem =
     song?.source.kind === "builtin" ||
-    (song?.source.kind === "stems" && song.source.urls.vocals !== undefined);
+    (song?.source.kind === "stems" &&
+      (song.source.urls.vocals !== undefined || song.source.urls.full !== undefined));
+  // Full mix present → the vocal fader is a full ↔ instrumental crossfade.
+  const crossfade = song?.source.kind === "stems" && song.source.urls.full !== undefined;
 
   return (
     <main className="flex h-dvh flex-col">
@@ -152,6 +156,7 @@ export function Player({ song: serverSong, songId }: { song: Song | null; songId
           <span className="block truncate font-medium">{song?.title ?? "…"}</span>
           <span className="block truncate text-xs text-white/40">{song?.artist}</span>
         </div>
+        {song ? <SongInfo song={song} /> : null}
         <button
           onClick={() => setRetro((r) => !r)}
           className={`rounded-full border px-3 py-1 text-xs transition ${
@@ -196,7 +201,7 @@ export function Player({ song: serverSong, songId }: { song: Song | null; songId
               onChange={(v) => setGain("vocals", v)}
             />
             <Fader
-              label="Instrumental"
+              label={crossfade ? "Track volume" : "Instrumental"}
               value={gains.instrumental}
               onChange={(v) => setGain("instrumental", v)}
             />

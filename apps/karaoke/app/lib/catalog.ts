@@ -78,11 +78,14 @@ async function loadStoredLibrary(): Promise<Song[]> {
         kind: "stems" as const,
         urls: {
           ...(entry.stems.vocals ? { vocals: `/api/stems/${entry.id}/vocals` } : {}),
+          ...(entry.stems.full ? { full: `/api/stems/${entry.id}/full` } : {}),
           instrumental: `/api/stems/${entry.id}/instrumental`,
         },
       },
       lyrics,
       wordTimed: lyrics.some((l) => l.words !== undefined),
+      lyricsStatus:
+        entry.lyricsStatus ?? (entry.lrc ? ("synced" as const) : ("not-found" as const)),
     };
   });
 }

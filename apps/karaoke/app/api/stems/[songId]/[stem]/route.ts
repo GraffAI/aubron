@@ -18,7 +18,7 @@ export async function GET(
   if (!isStorageConfigured()) {
     return NextResponse.json({ error: "library storage not configured" }, { status: 503 });
   }
-  if (stem !== "vocals" && stem !== "instrumental") {
+  if (stem !== "vocals" && stem !== "instrumental" && stem !== "full") {
     return NextResponse.json({ error: "unknown stem" }, { status: 404 });
   }
   const entries = (await getJson<StoredLibraryEntry[]>("library/index.json")) ?? [];
