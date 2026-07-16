@@ -120,6 +120,8 @@ export interface IngestJob {
   predictionUrl: string | null;
   /** Why separation was skipped, when it was. */
   separationNote?: string;
+  /** Reprocess runs update an existing song instead of minting a new id. */
+  targetSongId?: string;
   status: "separating" | "done" | "error";
   songId?: string;
   error?: string;

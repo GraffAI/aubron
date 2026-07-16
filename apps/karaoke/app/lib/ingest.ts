@@ -1,4 +1,5 @@
-import { getJson, getObjectBytes, putJson, putObject } from "./storage";
+import { isSeparationConfigured, startSeparation } from "./pipeline";
+import { getJson, getObjectBytes, presignGet, putJson, putObject } from "./storage";
 import type { IngestJob, IngestReport, StoredLibraryEntry } from "./types";
 
 /**
@@ -61,6 +62,28 @@ async function storeStem(songId: string, stem: string, url: string): Promise<str
 export const ingestReportKey = (songId: string) => `library/${songId}/ingest.json`;
 
 /**
+ * Kick a prepared job off: start separation when a provider is configured
+ * (handing it a short-lived read URL for the original), or finalize
+ * immediately with the original as backing when there's nothing to wait for.
+ * Shared by first ingest and reprocess so they can't drift apart.
+ */
+export async function launchJob(job: IngestJob): Promise<IngestJob> {
+  if (isSeparationConfigured()) {
+    const start = await startSeparation(await presignGet(job.key)).catch((err: unknown) => ({
+      started: false as const,
+      reason: err instanceof Error ? err.message : "separation request failed",
+    }));
+    if (start.started) job.predictionUrl = start.job.predictionUrl;
+    else job.separationNote = start.reason;
+  } else {
+    job.separationNote = "no separation provider configured — full mix stored as backing";
+  }
+  if (!job.predictionUrl) return finalizeJob(job, {});
+  await writeJob(job);
+  return job;
+}
+
+/**
  * Persist stems + manifest entry and mark the job done.
  *
  * The untouched original is always stored as the `full` stem: separation is
@@ -76,7 +99,8 @@ export async function finalizeJob(
   job: IngestJob,
   stemUrls: { vocals?: string; instrumental?: string },
 ): Promise<IngestJob> {
-  const songId = `${slugify(`${job.artist} ${job.title}`)}-${job.id.slice(0, 6)}`;
+  const songId =
+    job.targetSongId ?? `${slugify(`${job.artist} ${job.title}`)}-${job.id.slice(0, 6)}`;
   const stems: StoredLibraryEntry["stems"] = { instrumental: "" };
 
   const original = await getObjectBytes(job.key);

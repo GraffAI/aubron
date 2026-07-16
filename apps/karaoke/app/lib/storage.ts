@@ -1,4 +1,9 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 /**
@@ -80,6 +85,15 @@ export async function getObjectStream(
   } catch (err) {
     if (err instanceof Error && (err.name === "NoSuchKey" || err.name === "NotFound")) return null;
     throw err;
+  }
+}
+
+/** Best-effort delete — removing something already gone is a success. */
+export async function deleteObject(key: string): Promise<void> {
+  try {
+    await client().send(new DeleteObjectCommand({ Bucket: bucket(), Key: key }));
+  } catch {
+    /* missing key or transient error: deletion is best-effort */
   }
 }
 

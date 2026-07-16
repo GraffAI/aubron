@@ -72,6 +72,58 @@ export function SongInfo({ song }: { song: Song }) {
       .catch((err: unknown) => setDiagError(err instanceof Error ? err.message : "failed to load"));
   }, [open, stored, song.id]);
 
+  const [managing, setManaging] = useState<"idle" | "reprocessing" | "deleting" | "done">("idle");
+  const [manageMsg, setManageMsg] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  /** Re-run separation + lyric lookup in place, then reload the song. */
+  const reprocess = async () => {
+    setManaging("reprocessing");
+    setManageMsg("");
+    try {
+      const res = await fetch(`/api/songs/${song.id}/reprocess`, { method: "POST" });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `reprocess failed (${res.status})`);
+      }
+      let state = (await res.json()) as { jobId: string; status: string; error?: string };
+      while (state.status === "separating") {
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        const poll = await fetch(`/api/ingest/${state.jobId}`);
+        if (!poll.ok) throw new Error("lost track of the reprocess job");
+        state = (await poll.json()) as typeof state;
+      }
+      if (state.status !== "done") throw new Error(state.error ?? "reprocess failed");
+      setManaging("done");
+      setManageMsg("✓ Reprocessed — reload the song to hear the new stems.");
+      router.refresh();
+    } catch (err) {
+      setManaging("idle");
+      setManageMsg(err instanceof Error ? err.message : "reprocess failed");
+    }
+  };
+
+  /** Two-tap delete: arm, then destroy and go home. */
+  const removeSong = async () => {
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      setTimeout(() => setConfirmDelete(false), 4000);
+      return;
+    }
+    setManaging("deleting");
+    setManageMsg("");
+    try {
+      const res = await fetch(`/api/songs/${song.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`delete failed (${res.status})`);
+      router.push("/");
+      router.refresh();
+    } catch (err) {
+      setManaging("idle");
+      setConfirmDelete(false);
+      setManageMsg(err instanceof Error ? err.message : "delete failed");
+    }
+  };
+
   const retry = async () => {
     setRetrying(true);
     setRetryResult(null);
@@ -220,6 +272,39 @@ export function SongInfo({ song }: { song: Song }) {
                 ) : (
                   <p className="text-xs text-white/40">Loading…</p>
                 )}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    onClick={() => void reprocess()}
+                    disabled={managing !== "idle"}
+                    className="flex-1 rounded-lg border border-white/15 px-3 py-2 text-sm text-white/80 transition hover:border-neon/60 disabled:opacity-40"
+                  >
+                    {managing === "reprocessing"
+                      ? "Reprocessing…"
+                      : "Reprocess (separation + lyrics)"}
+                  </button>
+                  <button
+                    onClick={() => void removeSong()}
+                    disabled={managing === "reprocessing" || managing === "deleting"}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-sm transition disabled:opacity-40 ${
+                      confirmDelete
+                        ? "border-red-400 bg-red-400/20 text-red-200"
+                        : "border-red-400/40 text-red-300 hover:border-red-400"
+                    }`}
+                  >
+                    {managing === "deleting"
+                      ? "Deleting…"
+                      : confirmDelete
+                        ? "Tap again to really delete"
+                        : "Delete from library"}
+                  </button>
+                </div>
+                {manageMsg ? (
+                  <p
+                    className={`text-xs ${manageMsg.startsWith("✓") ? "text-neon" : "text-red-400"}`}
+                  >
+                    {manageMsg}
+                  </p>
+                ) : null}
               </section>
             ) : (
               <p className="text-xs text-white/40">
