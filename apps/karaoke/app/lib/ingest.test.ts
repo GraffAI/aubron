@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { audioExt, slugify } from "./ingest";
-import { pickStems } from "./pipeline";
+import { parseLrc } from "./lrc";
+import { pickStems, whisperxToLrc } from "./pipeline";
 
 describe("slugify", () => {
   it("makes url-safe ids", () => {
@@ -37,5 +38,52 @@ describe("pickStems", () => {
     expect(pickStems(null)).toEqual({});
     expect(pickStems("a-url")).toEqual({});
     expect(pickStems({ drums: "d.mp3" })).toEqual({ vocals: undefined, instrumental: undefined });
+  });
+});
+
+describe("whisperxToLrc", () => {
+  it("converts word-level segments into enhanced LRC our parser accepts", () => {
+    const lrc = whisperxToLrc({
+      segments: [
+        {
+          start: 61.2,
+          text: " Daisy, Daisy",
+          words: [
+            { word: "Daisy,", start: 61.2, end: 61.9 },
+            { word: "Daisy", start: 62.4, end: 63.0 },
+          ],
+        },
+      ],
+    });
+    expect(lrc).toBe("[01:01.20]<01:01.20>Daisy, <01:02.40>Daisy");
+    const lines = parseLrc(lrc!);
+    expect(lines[0]!.words).toEqual([
+      { time: 61.2, text: "Daisy," },
+      { time: 62.4, text: "Daisy" },
+    ]);
+  });
+
+  it("carries the previous timestamp for untimed words", () => {
+    const lrc = whisperxToLrc({
+      segments: [
+        {
+          start: 5,
+          words: [{ word: "sing", start: 5 }, { word: "42" }, { word: "songs", start: 6.5 }],
+        },
+      ],
+    });
+    expect(lrc).toBe("[00:05.00]<00:05.00>sing <00:05.00>42 <00:06.50>songs");
+  });
+
+  it("falls back to line timing when a segment has no words", () => {
+    expect(whisperxToLrc({ segments: [{ start: 10, text: "instrumental bridge" }] })).toBe(
+      "[00:10.00]instrumental bridge",
+    );
+  });
+
+  it("returns null for unrecognized shapes", () => {
+    expect(whisperxToLrc(null)).toBeNull();
+    expect(whisperxToLrc({ transcript: "hi" })).toBeNull();
+    expect(whisperxToLrc({ segments: [] })).toBeNull();
   });
 });

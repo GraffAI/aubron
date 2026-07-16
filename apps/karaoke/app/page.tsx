@@ -4,6 +4,7 @@ import { AddSong } from "./add-song";
 import { isAuthEnabled } from "./lib/auth";
 import { getSongs } from "./lib/catalog";
 import { formatClock } from "./lib/lrc";
+import { isAlignmentConfigured } from "./lib/pipeline";
 import { isStorageConfigured } from "./lib/storage";
 
 // The library manifest and the auth banner both reflect runtime state.
@@ -72,7 +73,10 @@ export default async function Library() {
         <h2 className="text-xs font-medium uppercase tracking-widest text-white/40">
           Sing something of yours
         </h2>
-        <AddSong libraryEnabled={isStorageConfigured()} />
+        <AddSong
+          libraryEnabled={isStorageConfigured()}
+          alignmentEnabled={isAlignmentConfigured()}
+        />
         {!isStorageConfigured() && (
           <p className="text-[11px] leading-snug text-white/30">
             Library storage is not configured, so dropped files only play in this tab. Point{" "}

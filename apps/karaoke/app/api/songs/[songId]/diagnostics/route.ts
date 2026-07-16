@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { ingestReportKey } from "../../../../lib/ingest";
+import { isAlignmentConfigured } from "../../../../lib/pipeline";
 import { getJson, isStorageConfigured } from "../../../../lib/storage";
 import type { IngestReport, StoredLibraryEntry } from "../../../../lib/types";
 
@@ -37,5 +38,6 @@ export async function GET(
       ),
     },
     ingest: report,
+    alignmentAvailable: isAlignmentConfigured() && entry.stems.vocals !== undefined,
   });
 }

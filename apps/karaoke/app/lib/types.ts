@@ -101,6 +101,8 @@ export interface IngestReport {
   addedAt: string;
   lyrics: LyricsReport | null;
   separation: { used: boolean; note: string };
+  /** Word-timing (forced alignment) outcome, when it ran. */
+  alignment?: { used: boolean; note: string } | null;
   stems: { vocals?: string; instrumental: string; full?: string };
 }
 
@@ -122,7 +124,13 @@ export interface IngestJob {
   separationNote?: string;
   /** Reprocess runs update an existing song instead of minting a new id. */
   targetSongId?: string;
-  status: "separating" | "done" | "error";
+  /** Run WhisperX word-timing over the vocal stem after separation. */
+  align?: boolean;
+  /** WhisperX prediction URL to poll during the "aligning" phase. */
+  alignPredictionUrl?: string | null;
+  /** Stem keys stored at finalize (needed to hand vocals to alignment). */
+  storedStems?: { vocals?: string; instrumental: string; full?: string };
+  status: "separating" | "aligning" | "done" | "error";
   songId?: string;
   error?: string;
 }

@@ -64,13 +64,28 @@ fader is a linear **full ↔ instrumental crossfade**: at max you hear the
 original bit-exact, at zero pure instrumental. The vocal stem is still kept —
 it's the input for forced alignment and a future practice mode.
 
+**Word timing (WhisperX).** With `REPLICATE_WHISPERX_VERSION` pinned, the
+pipeline can word-time lyrics by transcribing + aligning the **isolated vocal
+stem** (far more accurate than the full mix). It runs automatically when
+LRCLIB has no synced lyrics, on demand at ingest ("AI word timing" checkbox —
+even on an LRCLIB hit), or retroactively from the ⓘ panel
+(`POST /api/songs/<id>/align`). Alignment runs _after_ the song is live and
+can only upgrade it — a failure keeps whatever lyrics existed. The job flow is
+`separating → aligning → done`, polled on the same `GET /api/ingest/<jobId>`.
+
+**Ingest shows its work.** The add-song flow renders staged progress — upload
+percentage, the lyric-lookup verdict the moment it lands, elapsed timers for
+separation and word timing — and finishes with an **in-flow preview**
+(`GET /api/songs/<id>/manifest`): the processed stems + timed lyrics in a mini
+player, so timing can be judged before leaving the page.
+
 **Every ingest is diagnosable.** A per-song `ingest.json` report records the
-lyric lookup (query, provider endpoints hit, outcome or error) and the
-separation note. The player's ⓘ panel renders it — phone-friendly — and can
-**re-run the lyric search with corrected artist/title**
-(`POST /api/songs/<id>/lyrics`), since metadata mismatch is the usual cause of
-a miss. Library rows badge each song: `word-timed` / `timed` / `untimed` /
-`no lyrics`.
+lyric lookup (query, provider endpoints hit, outcome or error), the separation
+note, and the alignment outcome. The player's ⓘ panel renders it —
+phone-friendly — and can **re-run the lyric search with corrected
+artist/title** (`POST /api/songs/<id>/lyrics`), since metadata mismatch is the
+usual cause of a miss. Library rows badge each song: `word-timed` / `timed` /
+`untimed` / `no lyrics`.
 
 ## Storage (the private library)
 
@@ -111,17 +126,18 @@ starter collection without any bucket at all.
 
 ## Environment
 
-| Variable                    | Purpose                                                                                                                                          |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `KARAOKE_PASSCODE`          | Enables auth; also the session-cookie signing secret (rotating it logs everyone out).                                                            |
-| `STORAGE_ENDPOINT`          | S3-compatible endpoint (e.g. `https://<account>.r2.cloudflarestorage.com`).                                                                      |
-| `STORAGE_BUCKET`            | Bucket name. Keep it **private** — no public access, ever.                                                                                       |
-| `STORAGE_ACCESS_KEY_ID`     | Credentials scoped to that bucket.                                                                                                               |
-| `STORAGE_SECRET_ACCESS_KEY` | —                                                                                                                                                |
-| `STORAGE_REGION`            | Optional (default `us-east-1`; R2 uses `auto`).                                                                                                  |
-| `STORAGE_FORCE_PATH_STYLE`  | Set for R2/MinIO.                                                                                                                                |
-| `REPLICATE_API_TOKEN`       | Enables the separation step of `/api/ingest`.                                                                                                    |
-| `REPLICATE_DEMUCS_VERSION`  | Pinned demucs version: the bare hash after the colon in `owner/model:hash`. The input dialect matches `ryan5453/demucs` (`two_stems: "vocals"`). |
+| Variable                     | Purpose                                                                                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `KARAOKE_PASSCODE`           | Enables auth; also the session-cookie signing secret (rotating it logs everyone out).                                                            |
+| `STORAGE_ENDPOINT`           | S3-compatible endpoint (e.g. `https://<account>.r2.cloudflarestorage.com`).                                                                      |
+| `STORAGE_BUCKET`             | Bucket name. Keep it **private** — no public access, ever.                                                                                       |
+| `STORAGE_ACCESS_KEY_ID`      | Credentials scoped to that bucket.                                                                                                               |
+| `STORAGE_SECRET_ACCESS_KEY`  | —                                                                                                                                                |
+| `STORAGE_REGION`             | Optional (default `us-east-1`; R2 uses `auto`).                                                                                                  |
+| `STORAGE_FORCE_PATH_STYLE`   | Set for R2/MinIO.                                                                                                                                |
+| `REPLICATE_API_TOKEN`        | Enables the separation step of `/api/ingest`.                                                                                                    |
+| `REPLICATE_DEMUCS_VERSION`   | Pinned demucs version: the bare hash after the colon in `owner/model:hash`. The input dialect matches `ryan5453/demucs` (`two_stems: "vocals"`). |
+| `REPLICATE_WHISPERX_VERSION` | Pinned WhisperX version (bare hash) for word timing. Input dialect matches `victor-upmeet/whisperx` (`audio_file`, `align_output: true`).        |
 
 ## Develop
 
