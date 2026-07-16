@@ -72,8 +72,14 @@ export interface StoredLibraryEntry {
   artist: string;
   duration: number;
   stems: { vocals?: string; instrumental: string; full?: string };
-  /** LRC text inlined so the whole library is one JSON read. */
+  /** The ACTIVE lyrics (what the player renders), inlined as LRC text. */
   lrc: string | null;
+  /** Provider (LRCLIB / user-picked) timing, kept so it can be re-activated. */
+  providerLrc?: string | null;
+  /** AI (WhisperX transplant or transcript) timing, likewise switchable. */
+  aiLrc?: string | null;
+  /** Which of the two `lrc` currently mirrors. */
+  lrcSource?: "provider" | "ai";
   /** Outcome of the lyric lookup, for at-a-glance library badges. */
   lyricsStatus?: LyricsStatus;
   addedAt: string;
@@ -126,6 +132,9 @@ export interface IngestJob {
   targetSongId?: string;
   /** Run WhisperX word-timing over the vocal stem after separation. */
   align?: boolean;
+  /** Plain lyric text to retime (timing transplant). Without it, Whisper's
+   *  own transcription becomes the lyrics — last resort, not default. */
+  seedPlain?: string | null;
   /** WhisperX prediction URL to poll during the "aligning" phase. */
   alignPredictionUrl?: string | null;
   /** Stem keys stored at finalize (needed to hand vocals to alignment). */

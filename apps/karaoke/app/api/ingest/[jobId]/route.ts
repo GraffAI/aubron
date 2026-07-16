@@ -2,7 +2,14 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { applyAlignment, finalizeJob, readJob, writeJob } from "../../../lib/ingest";
-import { getPrediction, pickStems, startAlignment, whisperxToLrc } from "../../../lib/pipeline";
+import {
+  flattenWhisperWords,
+  getPrediction,
+  pickStems,
+  startAlignment,
+  whisperxToLrc,
+} from "../../../lib/pipeline";
+import { retimeLyrics } from "../../../lib/retime";
 import { isStorageConfigured, presignGet } from "../../../lib/storage";
 import type { IngestJob } from "../../../lib/types";
 
@@ -114,12 +121,26 @@ async function pollAlignment(job: IngestJob) {
       null,
       `word timing failed: ${prediction.error ?? prediction.status}`,
     );
+  } else if (job.seedPlain) {
+    // Timing transplant: the chosen lyric text stays the truth; Whisper only
+    // contributes timestamps. Falls back to nothing (not to Whisper's own
+    // words) when too little matches — a mismatched sheet is the likely cause.
+    const lrc = retimeLyrics(job.seedPlain, flattenWhisperWords(prediction.output));
+    await applyAlignment(
+      songId,
+      lrc,
+      lrc
+        ? "chosen lyrics retimed via WhisperX transplant"
+        : "retiming rejected: Whisper heard too little of the chosen lyrics (wrong sheet?)",
+    );
   } else {
     const lrc = whisperxToLrc(prediction.output);
     await applyAlignment(
       songId,
       lrc,
-      lrc ? "word-timed via WhisperX" : "word timing produced unrecognized output",
+      lrc
+        ? "transcribed + word-timed via WhisperX (no lyric sheet to seed)"
+        : "word timing produced unrecognized output",
     );
   }
   await writeJob({ ...job, status: "done", songId });

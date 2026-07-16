@@ -215,6 +215,25 @@ const lrcTime = (seconds: number) => {
   return `${String(m).padStart(2, "0")}:${s.toFixed(2).padStart(5, "0")}`;
 };
 
+/** Flatten WhisperX output into one heard-word stream for timing transplant. */
+export function flattenWhisperWords(output: unknown): { word: string; start: number }[] {
+  const segments = (output as { segments?: unknown } | null)?.segments;
+  if (!Array.isArray(segments)) return [];
+  const out: { word: string; start: number }[] = [];
+  for (const seg of segments as WhisperSegment[]) {
+    let last = Number.isFinite(seg.start) ? seg.start! : out.at(-1)?.start;
+    for (const w of Array.isArray(seg.words) ? seg.words : []) {
+      const text = (w.word ?? w.text ?? "").trim();
+      if (!text) continue;
+      const t = Number.isFinite(w.start) ? w.start! : last;
+      if (t === undefined) continue;
+      last = t;
+      out.push({ word: text, start: t });
+    }
+  }
+  return out;
+}
+
 /**
  * WhisperX output → enhanced LRC: one line per segment, `<mm:ss.xx>` tags per
  * word. Words occasionally arrive without a timestamp (numbers, punctuation

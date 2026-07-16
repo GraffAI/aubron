@@ -28,6 +28,9 @@ export async function GET(
     duration: entry.duration,
     lrc: entry.lrc,
     lyricsStatus: entry.lyricsStatus ?? (entry.lrc ? "synced" : "not-found"),
+    lrcSource: entry.lrcSource ?? (entry.lrc ? "provider" : undefined),
+    hasProvider: Boolean(entry.providerLrc),
+    hasAi: Boolean(entry.aiLrc),
     urls: {
       ...(entry.stems.vocals ? { vocals: `/api/stems/${entry.id}/vocals` } : {}),
       ...(entry.stems.full ? { full: `/api/stems/${entry.id}/full` } : {}),

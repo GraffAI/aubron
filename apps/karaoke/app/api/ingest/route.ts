@@ -3,8 +3,9 @@ import type { NextRequest } from "next/server";
 
 import { applyAlignment, launchJob } from "../../lib/ingest";
 import { findLyrics, isAlignmentConfigured } from "../../lib/pipeline";
+import { lyricsToPlainLines } from "../../lib/retime";
 import { isStorageConfigured } from "../../lib/storage";
-import type { IngestJob } from "../../lib/types";
+import type { IngestJob, LyricsReport } from "../../lib/types";
 
 // Finalizing may download + re-upload stems; give the function room.
 export const maxDuration = 300;
@@ -15,8 +16,12 @@ interface IngestRequest {
   title: string;
   artist: string;
   durationSeconds?: number;
-  /** Force WhisperX word timing even when LRCLIB returned synced lyrics. */
+  /** Force WhisperX word timing even when synced lyrics exist. */
   align?: boolean;
+  /** Lyric sheet the user picked in the selection step. `synced` is LRC (or
+   *  null for an untimed sheet); `plain` is the text used to seed AI timing.
+   *  When present the server does NOT run its own lookup. */
+  chosen?: { synced: string | null; plain: string | null; source: string } | null;
 }
 
 /**
@@ -47,10 +52,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const lyrics = await findLyrics(body.artist.trim(), body.title.trim(), body.durationSeconds);
+  // A user-picked sheet is authoritative; the server only searches when the
+  // client didn't (older clients, direct API use).
+  const lyrics: LyricsReport = body.chosen
+    ? {
+        status: body.chosen.synced ? "synced" : body.chosen.plain ? "plain-only" : "not-found",
+        synced: body.chosen.synced,
+        plain: body.chosen.plain,
+        source: body.chosen.source ? `picked:${body.chosen.source}` : "picked",
+        query: { artist: body.artist.trim(), title: body.title.trim() },
+        attempts: ["user selected in the lyric picker"],
+      }
+    : await findLyrics(body.artist.trim(), body.title.trim(), body.durationSeconds);
   const wantAlign = body.align === true || lyrics.synced === null;
   const align = wantAlign && isAlignmentConfigured();
 
+  const seedText =
+    lyrics.plain ?? (lyrics.synced ? lyricsToPlainLines(lyrics.synced).join("\n") : null);
   const job: IngestJob = {
     id: crypto.randomUUID(),
     key: body.key,
@@ -61,6 +79,7 @@ export async function POST(request: NextRequest) {
     lyrics,
     predictionUrl: null,
     align,
+    seedPlain: align ? seedText : null,
     status: "separating",
   };
 
