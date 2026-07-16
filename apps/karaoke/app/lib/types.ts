@@ -34,7 +34,16 @@ export type StemKind = "vocals" | "instrumental" | "full";
  */
 export type SongSource =
   | { kind: "builtin"; id: "daisy-bell" }
-  | { kind: "stems"; urls: { vocals?: string; instrumental: string; full?: string } }
+  | {
+      kind: "stems";
+      urls: {
+        vocals?: string;
+        instrumental: string;
+        /** Extra backing parts (4-stem providers: bass/other) summed by the player. */
+        extras?: string[];
+        full?: string;
+      };
+    }
   | { kind: "local"; objectUrl: string };
 
 export interface Song {
@@ -71,7 +80,13 @@ export interface StoredLibraryEntry {
   title: string;
   artist: string;
   duration: number;
-  stems: { vocals?: string; instrumental: string; full?: string };
+  stems: {
+    vocals?: string;
+    instrumental: string;
+    /** Bucket keys of extra backing parts (4-stem providers). */
+    extras?: string[];
+    full?: string;
+  };
   /** The ACTIVE lyrics (what the player renders), inlined as LRC text. */
   lrc: string | null;
   /** Provider (LRCLIB / user-picked) timing, kept so it can be re-activated. */
@@ -106,10 +121,18 @@ export interface IngestReport {
   originalKey: string;
   addedAt: string;
   lyrics: LyricsReport | null;
-  separation: { used: boolean; note: string };
+  separation: {
+    used: boolean;
+    note: string;
+    /** The exact input sent to the provider (audio URL redacted) — the
+     *  "did my config actually take effect" answer. */
+    input?: Record<string, unknown>;
+    /** Output keys the provider returned (e.g. vocals, drums, bass, other). */
+    outputStems?: string[];
+  };
   /** Word-timing (forced alignment) outcome, when it ran. */
   alignment?: { used: boolean; note: string } | null;
-  stems: { vocals?: string; instrumental: string; full?: string };
+  stems: { vocals?: string; instrumental: string; extras?: string[]; full?: string };
 }
 
 /** Ingest job state, persisted in the bucket (`jobs/<id>.json`) so any
@@ -142,7 +165,11 @@ export interface IngestJob {
   /** WhisperX prediction URL to poll (replicate provider only). */
   alignPredictionUrl?: string | null;
   /** Stem keys stored at finalize (needed to hand vocals to alignment). */
-  storedStems?: { vocals?: string; instrumental: string; full?: string };
+  storedStems?: { vocals?: string; instrumental: string; extras?: string[]; full?: string };
+  /** Separation request input (audio URL redacted), for the ingest report. */
+  separationInput?: Record<string, unknown>;
+  /** Output keys the separation provider returned, for the ingest report. */
+  separationOutputKeys?: string[];
   status: "separating" | "aligning" | "done" | "error";
   songId?: string;
   error?: string;

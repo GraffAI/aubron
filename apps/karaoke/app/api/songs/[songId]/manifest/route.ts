@@ -34,6 +34,9 @@ export async function GET(
     urls: {
       ...(entry.stems.vocals ? { vocals: `/api/stems/${entry.id}/vocals` } : {}),
       ...(entry.stems.full ? { full: `/api/stems/${entry.id}/full` } : {}),
+      ...(entry.stems.extras?.length
+        ? { extras: entry.stems.extras.map((_, i) => `/api/stems/${entry.id}/backing${i + 2}`) }
+        : {}),
       instrumental: `/api/stems/${entry.id}/instrumental`,
     },
   });

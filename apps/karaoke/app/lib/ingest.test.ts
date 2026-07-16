@@ -25,19 +25,32 @@ describe("audioExt", () => {
 });
 
 describe("pickStems", () => {
-  it("accepts the common demucs output spellings", () => {
+  it("accepts the common two-stem output spellings", () => {
     expect(pickStems({ vocals: "v.mp3", no_vocals: "i.mp3" })).toEqual({
       vocals: "v.mp3",
-      instrumental: "i.mp3",
+      backing: ["i.mp3"],
     });
-    expect(pickStems({ vocals: "v.mp3", accompaniment: "i.mp3" }).instrumental).toBe("i.mp3");
-    expect(pickStems({ vocals: "v.mp3", other: "i.mp3" }).instrumental).toBe("i.mp3");
+    expect(pickStems({ vocals: "v.mp3", accompaniment: "i.mp3" }).backing).toEqual(["i.mp3"]);
+  });
+
+  it("maps 4-stem output to multiple backing parts — never `other` alone", () => {
+    expect(pickStems({ vocals: "v.mp3", drums: "d.mp3", bass: "b.mp3", other: "o.mp3" })).toEqual({
+      vocals: "v.mp3",
+      backing: ["d.mp3", "b.mp3", "o.mp3"],
+    });
+    // The bug this guards against: treating `other` (no drums, no bass) as
+    // the instrumental when the sibling stems exist.
+    expect(pickStems({ vocals: "v", drums: "d", other: "o" }).backing).toEqual(["d", "o"]);
+  });
+
+  it("still accepts `other` alone (some deployments' everything-else)", () => {
+    expect(pickStems({ vocals: "v.mp3", other: "i.mp3" }).backing).toEqual(["i.mp3"]);
   });
 
   it("returns empty for unrecognized shapes", () => {
-    expect(pickStems(null)).toEqual({});
-    expect(pickStems("a-url")).toEqual({});
-    expect(pickStems({ drums: "d.mp3" })).toEqual({ vocals: undefined, instrumental: undefined });
+    expect(pickStems(null)).toEqual({ backing: [] });
+    expect(pickStems("a-url")).toEqual({ backing: [] });
+    expect(pickStems({ drums: "d.mp3" }).backing).toEqual([]);
   });
 });
 

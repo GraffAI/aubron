@@ -297,6 +297,16 @@ export function SongInfo({ song }: { song: Song }) {
                       ))}
                     </p>
                     <p>Separation: {diag.ingest?.separation.note ?? "no report stored"}</p>
+                    {diag.ingest?.separation.input ? (
+                      <p className="font-mono text-[11px] text-white/40">
+                        input: {JSON.stringify(diag.ingest.separation.input)}
+                      </p>
+                    ) : null}
+                    {diag.ingest?.separation.outputStems ? (
+                      <p className="font-mono text-[11px] text-white/40">
+                        provider returned: {diag.ingest.separation.outputStems.join(", ")}
+                      </p>
+                    ) : null}
                     <p>Added {new Date(diag.song.addedAt).toLocaleString()}</p>
                   </div>
                 ) : diagError ? (

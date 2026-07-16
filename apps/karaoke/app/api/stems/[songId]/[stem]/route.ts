@@ -18,11 +18,16 @@ export async function GET(
   if (!isStorageConfigured()) {
     return NextResponse.json({ error: "library storage not configured" }, { status: 503 });
   }
-  if (stem !== "vocals" && stem !== "instrumental" && stem !== "full") {
+  const extraMatch = /^backing(\d+)$/.exec(stem);
+  if (stem !== "vocals" && stem !== "instrumental" && stem !== "full" && !extraMatch) {
     return NextResponse.json({ error: "unknown stem" }, { status: 404 });
   }
   const entries = (await getJson<StoredLibraryEntry[]>("library/index.json")) ?? [];
-  const key = entries.find((e) => e.id === songId)?.stems[stem];
+  const entry = entries.find((e) => e.id === songId);
+  // backing2 → extras[0], backing3 → extras[1], …
+  const key = extraMatch
+    ? entry?.stems.extras?.[Number(extraMatch[1]) - 2]
+    : entry?.stems[stem as "vocals" | "instrumental" | "full"];
   if (!key) return NextResponse.json({ error: "not found" }, { status: 404 });
   const object = await getObjectStream(key);
   if (!object) return NextResponse.json({ error: "stem object missing" }, { status: 404 });
