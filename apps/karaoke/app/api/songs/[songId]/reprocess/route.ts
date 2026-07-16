@@ -38,8 +38,11 @@ export async function POST(
   }
 
   // Old stems can change extension across runs; clear them so nothing orphans.
+  // (.flat() reaches into stems.extras — a string[] that a plain typeof
+  // filter would silently drop, orphaning backing2/backing3 forever.)
   await Promise.all(
     Object.values(entry.stems)
+      .flat()
       .filter((k): k is string => typeof k === "string")
       .map(deleteObject),
   );

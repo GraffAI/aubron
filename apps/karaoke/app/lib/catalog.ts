@@ -58,6 +58,30 @@ async function loadLibrary(): Promise<Song[]> {
   return songs.filter((s) => s !== null);
 }
 
+/**
+ * Authed proxy URLs for a stored entry's stems. The `v` query is a
+ * cache-buster derived from the entry's (re)process time: the stems proxy
+ * serves with an hour of browser cache, and a reprocess replaces the audio
+ * behind the SAME paths — without the version, a freshly reprocessed song
+ * keeps playing yesterday's cached stems (e.g. the old drums-less backing).
+ */
+export function storedStemUrls(entry: StoredLibraryEntry): {
+  vocals?: string;
+  full?: string;
+  extras?: string[];
+  instrumental: string;
+} {
+  const v = `?v=${(Date.parse(entry.addedAt) || 0).toString(36)}`;
+  return {
+    ...(entry.stems.vocals ? { vocals: `/api/stems/${entry.id}/vocals${v}` } : {}),
+    ...(entry.stems.full ? { full: `/api/stems/${entry.id}/full${v}` } : {}),
+    ...(entry.stems.extras?.length
+      ? { extras: entry.stems.extras.map((_, i) => `/api/stems/${entry.id}/backing${i + 2}${v}`) }
+      : {}),
+    instrumental: `/api/stems/${entry.id}/instrumental${v}`,
+  };
+}
+
 /** Songs ingested into the private bucket; stems play via the authed proxy. */
 async function loadStoredLibrary(): Promise<Song[]> {
   if (!isStorageConfigured()) return [];
@@ -76,14 +100,7 @@ async function loadStoredLibrary(): Promise<Song[]> {
       duration: entry.duration,
       source: {
         kind: "stems" as const,
-        urls: {
-          ...(entry.stems.vocals ? { vocals: `/api/stems/${entry.id}/vocals` } : {}),
-          ...(entry.stems.full ? { full: `/api/stems/${entry.id}/full` } : {}),
-          ...(entry.stems.extras?.length
-            ? { extras: entry.stems.extras.map((_, i) => `/api/stems/${entry.id}/backing${i + 2}`) }
-            : {}),
-          instrumental: `/api/stems/${entry.id}/instrumental`,
-        },
+        urls: storedStemUrls(entry),
       },
       lyrics,
       wordTimed: lyrics.some((l) => l.words !== undefined),

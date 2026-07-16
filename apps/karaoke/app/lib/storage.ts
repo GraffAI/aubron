@@ -1,6 +1,7 @@
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -84,6 +85,21 @@ export async function getObjectStream(
     };
   } catch (err) {
     if (err instanceof Error && (err.name === "NoSuchKey" || err.name === "NotFound")) return null;
+    throw err;
+  }
+}
+
+/** Size/type of an object without downloading it; null when it doesn't exist.
+ *  Powers the diagnostics stem inventory — "is the drums part actually there,
+ *  and is it a plausible number of bytes" is answerable per stem. */
+export async function headObject(
+  key: string,
+): Promise<{ bytes: number | null; contentType: string | null } | null> {
+  try {
+    const res = await client().send(new HeadObjectCommand({ Bucket: bucket(), Key: key }));
+    return { bytes: res.ContentLength ?? null, contentType: res.ContentType ?? null };
+  } catch (err) {
+    if (err instanceof Error && (err.name === "NotFound" || err.name === "NoSuchKey")) return null;
     throw err;
   }
 }

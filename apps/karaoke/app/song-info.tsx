@@ -3,7 +3,16 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import type { LoadedInfo } from "./lib/engine";
 import type { IngestReport, LyricsReport, LyricsStatus, Song } from "./lib/types";
+
+interface StemRow {
+  stem: string;
+  key: string;
+  url: string;
+  bytes: number | null;
+  contentType: string | null;
+}
 
 interface Diagnostics {
   song: {
@@ -16,9 +25,16 @@ interface Diagnostics {
     lyricLines: number;
     stems: string[];
   };
+  /** Live HEAD of every stored stem object — sizes prove what separation stored. */
+  storage?: StemRow[];
+  /** Short SHA of the deploy answering the request (null off Vercel). */
+  deployedCommit?: string | null;
   ingest: IngestReport | null;
   alignmentAvailable?: boolean;
 }
+
+const formatBytes = (n: number) =>
+  n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`;
 
 const STATUS_LABEL: Record<LyricsStatus, string> = {
   synced: "synced ✓",
@@ -43,18 +59,88 @@ function StatusChip({ status }: { status: LyricsStatus }) {
 }
 
 /**
+ * The stored-stem inventory: one row per stem object with its live byte size
+ * and a solo button. Soloing streams the stem alone (cache-busted URL), so
+ * "is the drums part actually IN the bucket" is answerable by ear — the
+ * decisive split between a separation-side bug and a playback-side one.
+ */
+function StemInventory({
+  diag,
+  audition,
+  setAudition,
+}: {
+  diag: Diagnostics;
+  audition: StemRow | null;
+  setAudition: (row: StemRow | null) => void;
+}) {
+  if (!diag.storage) return null;
+  const returned = diag.ingest?.separation.outputStems ?? [];
+  const backingStored = diag.storage.filter((r) => r.stem.startsWith("backing")).length;
+  // A 4-stem provider result should have landed as (stems − vocals) backing
+  // parts; fewer means the finalize ran on code that predated multi-part
+  // backing and stored a drums-less "other" as THE instrumental.
+  const staleIngest =
+    returned.length >= 3 && backingStored < returned.filter((s) => s !== "vocals").length;
+  return (
+    <div className="space-y-1 rounded-lg bg-white/5 p-3">
+      <p className="text-[11px] uppercase tracking-widest text-white/40">Stored stems</p>
+      {diag.storage.map((row) => (
+        <div key={row.stem} className="flex items-center gap-2">
+          <button
+            onClick={() => setAudition(audition?.stem === row.stem ? null : row)}
+            disabled={row.bytes === null}
+            className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border text-[10px] transition disabled:opacity-30 ${
+              audition?.stem === row.stem
+                ? "border-neon bg-neon/20 text-neon"
+                : "border-white/20 text-white/60 hover:border-neon/60"
+            }`}
+            aria-label={`Solo ${row.stem}`}
+          >
+            {audition?.stem === row.stem ? "■" : "▶"}
+          </button>
+          <span className="w-20 shrink-0 text-white/70">{row.stem}</span>
+          <span className={row.bytes === null ? "text-red-400" : "text-white/40"}>
+            {row.bytes === null ? "missing from storage!" : formatBytes(row.bytes)}
+          </span>
+        </div>
+      ))}
+      {staleIngest ? (
+        <p className="text-amber-300">
+          ⚠ The provider returned {returned.length} stems but only {backingStored} backing part
+          {backingStored === 1 ? " was" : "s were"} stored — this run used older pipeline code.
+          Reprocess to store drums/bass separately.
+        </p>
+      ) : null}
+      {audition ? (
+        <audio
+          src={audition.url}
+          controls
+          autoPlay
+          onEnded={() => setAudition(null)}
+          className="mt-1 h-8 w-full"
+        />
+      ) : null}
+      <p className="text-[11px] text-white/30">
+        Solo a stem to hear exactly what separation stored — drums should live in “backing”.
+      </p>
+    </div>
+  );
+}
+
+/**
  * The ⓘ panel: everything the pipeline knows about this song — lyric lookup
  * outcome (with per-request attempts when it failed), separation note, stem
  * inventory — plus a retry form, since a missed lookup is usually just
  * metadata mismatch. Sized for phones: full-screen sheet, scrollable.
  */
-export function SongInfo({ song }: { song: Song }) {
+export function SongInfo({ song, loaded }: { song: Song; loaded?: LoadedInfo | null }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const stored =
     song.source.kind === "stems" && song.source.urls.instrumental.startsWith("/api/stems/");
   const [diag, setDiag] = useState<Diagnostics | null>(null);
   const [diagError, setDiagError] = useState("");
+  const [audition, setAudition] = useState<StemRow | null>(null);
   const [artist, setArtist] = useState(song.artist);
   const [title, setTitle] = useState(song.title);
   const [retrying, setRetrying] = useState(false);
@@ -285,17 +371,6 @@ export function SongInfo({ song }: { song: Song }) {
                 </h3>
                 {diag ? (
                   <div className="space-y-1 text-xs text-white/50">
-                    <p>
-                      Stems:{" "}
-                      {diag.song.stems.map((s) => (
-                        <span
-                          key={s}
-                          className="mr-1 rounded bg-white/10 px-1.5 py-0.5 text-white/70"
-                        >
-                          {s}
-                        </span>
-                      ))}
-                    </p>
                     <p>Separation: {diag.ingest?.separation.note ?? "no report stored"}</p>
                     {diag.ingest?.separation.input ? (
                       <p className="font-mono text-[11px] text-white/40">
@@ -305,6 +380,37 @@ export function SongInfo({ song }: { song: Song }) {
                     {diag.ingest?.separation.outputStems ? (
                       <p className="font-mono text-[11px] text-white/40">
                         provider returned: {diag.ingest.separation.outputStems.join(", ")}
+                      </p>
+                    ) : null}
+                    {diag.ingest?.commit || diag.deployedCommit ? (
+                      <p className="font-mono text-[11px] text-white/40">
+                        code: processed @ {diag.ingest?.commit ?? "unknown"} · serving @{" "}
+                        {diag.deployedCommit ?? "unknown"}
+                      </p>
+                    ) : null}
+                    {diag.ingest?.commit &&
+                    diag.deployedCommit &&
+                    diag.ingest.commit !== diag.deployedCommit ? (
+                      <p className="text-amber-300">
+                        ⚠ The app has been updated since this song was processed — Reprocess to run
+                        the current pipeline.
+                      </p>
+                    ) : null}
+                    <StemInventory diag={diag} audition={audition} setAudition={setAudition} />
+                    {loaded ? (
+                      <p>
+                        Player loaded: {loaded.crossfade ? "full mix + " : ""}
+                        {loaded.backingParts} backing part{loaded.backingParts === 1 ? "" : "s"}
+                        {loaded.lagMs !== 0 ? ` · backing lag comp ${loaded.lagMs} ms` : ""}
+                      </p>
+                    ) : null}
+                    {loaded &&
+                    diag.storage &&
+                    diag.storage.filter((r) => r.stem.startsWith("backing")).length >
+                      loaded.backingParts ? (
+                      <p className="text-red-300">
+                        ⚠ The player loaded fewer backing parts than storage holds — reload the page
+                        to pick up the new stems.
                       </p>
                     ) : null}
                     <p>Added {new Date(diag.song.addedAt).toLocaleString()}</p>

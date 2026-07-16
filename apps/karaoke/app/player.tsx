@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { renderDaisyStems } from "./lib/daisy";
-import { KaraokeEngine, type MicChannel } from "./lib/engine";
+import { KaraokeEngine, type LoadedInfo, type MicChannel } from "./lib/engine";
 import { getLocalSong } from "./lib/local-session";
 import { formatClock } from "./lib/lrc";
 import type { Song } from "./lib/types";
@@ -28,6 +28,7 @@ export function Player({ song: serverSong, songId }: { song: Song | null; songId
   const [micLevels, setMicLevels] = useState<Record<number, number>>({});
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [micError, setMicError] = useState("");
+  const [loadedInfo, setLoadedInfo] = useState<LoadedInfo | null>(null);
   const engineRef = useRef<KaraokeEngine | null>(null);
 
   // Boot the engine and load this song's audio.
@@ -56,6 +57,7 @@ export function Player({ song: serverSong, songId }: { song: Song | null; songId
       if (cancelled) return;
       setSong(resolved);
       setDuration(engine.duration);
+      setLoadedInfo(engine.loadedInfo);
       setStatus("ready");
     })().catch((err: unknown) => {
       if (!cancelled) {
@@ -160,7 +162,7 @@ export function Player({ song: serverSong, songId }: { song: Song | null; songId
             {song?.artist}
           </span>
         </div>
-        {song ? <SongInfo song={song} /> : null}
+        {song ? <SongInfo song={song} loaded={loadedInfo} /> : null}
         <button
           onClick={() => setRetro((r) => !r)}
           className={`rounded-full border px-3 py-1 text-xs transition ${

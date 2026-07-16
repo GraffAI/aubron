@@ -61,6 +61,12 @@ async function storeStem(songId: string, stem: string, url: string): Promise<str
 
 export const ingestReportKey = (songId: string) => `library/${songId}/ingest.json`;
 
+/** Short SHA of the running code (Vercel injects VERCEL_GIT_COMMIT_SHA when
+ *  system env vars are exposed — the default). Stamped into every ingest
+ *  report so "did my reprocess actually run the new pipeline" is answerable. */
+export const pipelineCommit = (): string | undefined =>
+  (process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.COMMIT_SHA)?.slice(0, 7);
+
 /**
  * Kick a prepared job off: start separation when a provider is configured
  * (handing it a short-lived read URL for the original), or finalize
@@ -154,6 +160,7 @@ export async function finalizeJob(
     jobId: job.id,
     originalKey: job.key,
     addedAt: entry.addedAt,
+    ...(pipelineCommit() ? { commit: pipelineCommit() } : {}),
     lyrics: job.lyrics ?? null,
     separation: {
       used: Boolean(backing.length > 0 || stemUrls.vocals),

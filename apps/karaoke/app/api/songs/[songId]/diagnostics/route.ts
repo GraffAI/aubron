@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-import { ingestReportKey } from "../../../../lib/ingest";
+import { storedStemUrls } from "../../../../lib/catalog";
+import { ingestReportKey, pipelineCommit } from "../../../../lib/ingest";
 import { isAlignmentConfigured } from "../../../../lib/pipeline";
-import { getJson, isStorageConfigured } from "../../../../lib/storage";
+import { getJson, headObject, isStorageConfigured } from "../../../../lib/storage";
 import type { IngestReport, StoredLibraryEntry } from "../../../../lib/types";
 
 /**
- * Everything the pipeline knows about one stored song — the manifest entry
- * plus the ingest report (lyric lookup attempts and outcome, separation
- * note, stem inventory). This is what the player's info panel renders, so
- * "did lyrics work, and if not why" is answerable from a phone.
+ * Everything the pipeline knows about one stored song — the manifest entry,
+ * the ingest report (lyric lookup attempts, separation input/output, notes),
+ * and a LIVE storage inventory: every stem key HEADed right now, with byte
+ * sizes and an audition URL. That last part exists to answer "where did the
+ * drums go" definitively — is the part missing from storage (separation-side
+ * bug), or stored fine but not reaching the speakers (playback/cache bug)?
+ * Solo each stem in the ⓘ panel and hear exactly what was stored.
  */
 export async function GET(
   _request: NextRequest,
@@ -24,6 +28,25 @@ export async function GET(
   const entry = entries.find((e) => e.id === songId);
   if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
   const report = await getJson<IngestReport>(ingestReportKey(songId)).catch(() => null);
+
+  const urls = storedStemUrls(entry);
+  const rows: { stem: string; key: string; url: string }[] = [
+    { stem: "backing", key: entry.stems.instrumental, url: urls.instrumental },
+    ...(entry.stems.extras ?? []).map((key, i) => ({
+      stem: `backing${i + 2}`,
+      key,
+      url: urls.extras?.[i] ?? "",
+    })),
+    ...(entry.stems.vocals ? [{ stem: "vocals", key: entry.stems.vocals, url: urls.vocals! }] : []),
+    ...(entry.stems.full ? [{ stem: "full", key: entry.stems.full, url: urls.full! }] : []),
+  ];
+  const storage = await Promise.all(
+    rows.map(async (row) => {
+      const head = await headObject(row.key).catch(() => null);
+      return { ...row, bytes: head?.bytes ?? null, contentType: head?.contentType ?? null };
+    }),
+  );
+
   return NextResponse.json({
     song: {
       id: entry.id,
@@ -37,6 +60,9 @@ export async function GET(
         (k) => entry.stems[k as keyof typeof entry.stems] !== undefined,
       ),
     },
+    storage,
+    /** The code serving THIS request — compare with ingest.commit. */
+    deployedCommit: pipelineCommit() ?? null,
     ingest: report,
     alignmentAvailable: isAlignmentConfigured() && entry.stems.vocals !== undefined,
   });

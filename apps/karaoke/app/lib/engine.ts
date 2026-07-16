@@ -26,6 +26,16 @@ import { estimateBufferLag } from "./align-lag";
 
 export type StemGains = { vocals: number; instrumental: number };
 
+/** Snapshot of what the engine decoded and wired up, for diagnostics. */
+export interface LoadedInfo {
+  crossfade: boolean;
+  vocals: boolean;
+  /** Instrumental + extras — 4-stem separations should show 3 here. */
+  backingParts: number;
+  /** Codec-delay compensation applied to the backing leg. */
+  lagMs: number;
+}
+
 export interface MicChannel {
   id: number;
   deviceId: string;
@@ -85,6 +95,19 @@ export class KaraokeEngine {
   /** True when the vocal fader is a full-mix ↔ instrumental crossfade. */
   get crossfade(): boolean {
     return this.buffers?.full != null;
+  }
+
+  /** What actually made it into the audio graph — the ⓘ panel shows this so
+   *  "stored in the bucket" and "playing through the speakers" can disagree
+   *  visibly (e.g. a stale manifest served fewer backing parts). */
+  get loadedInfo(): LoadedInfo | null {
+    if (!this.buffers) return null;
+    return {
+      crossfade: this.buffers.full != null,
+      vocals: this.buffers.vocals != null,
+      backingParts: 1 + this.buffers.extras.length,
+      lagMs: Math.round(this.instLagSeconds * 1000),
+    };
   }
 
   // ── stems ────────────────────────────────────────────────────────────────
