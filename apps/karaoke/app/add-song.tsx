@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { IngestPreview } from "./ingest-preview";
 import { readId3 } from "./lib/id3";
 import { addLocalSong } from "./lib/local-session";
+import { mp3FileName, transcodePlan, transcodeToMp3 } from "./lib/transcode";
 import { LyricCandidatePreview } from "./lyric-candidate-preview";
 
 interface Draft {
@@ -15,6 +16,8 @@ interface Draft {
   data: ArrayBuffer;
   fileName: string;
   contentType: string;
+  /** Set when the file was converted in-browser (e.g. "6-channel FLAC → stereo MP3, 612 → 14 MB"). */
+  conversion?: string;
 }
 
 interface LyricCandidate {
@@ -110,6 +113,8 @@ export function AddSong({
   const [forceAlign, setForceAlign] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [note, setNote] = useState("");
+  // Non-null while an in-browser conversion is running; the drop zone shows it.
+  const [converting, setConverting] = useState<string | null>(null);
   // Elapsed-seconds ticker for the active long-running step. Each step's
   // start time is recorded ONCE, on first activation.
   const [, setTick] = useState(0);
@@ -140,28 +145,62 @@ export function AddSong({
     setForceAlign(false);
   };
 
+  const mb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024 / 1024))} MB`;
+
   const acceptFile = async (file: File) => {
+    if (converting !== null) return;
     setNote("");
     reset();
     const data = await file.arrayBuffer();
     const tags = readId3(data);
-    // Decode a copy for the real duration (decodeAudioData detaches its input).
-    let duration: number;
+    // Decode a copy for the real duration and channel layout (decodeAudioData
+    // detaches its input).
+    let decoded: AudioBuffer;
     try {
       const ctx = new AudioContext();
-      duration = (await ctx.decodeAudioData(data.slice(0))).duration;
+      decoded = await ctx.decodeAudioData(data.slice(0));
       void ctx.close();
     } catch {
       setNote("Couldn't decode that file — is it a real audio file?");
       return;
     }
+    // Throw their dumbass crimes right back at them: lossless or surround
+    // uploads get downmixed + MP3-encoded in this very browser, so a 600 MB
+    // 6-channel FLAC leaves the tab as a few stereo megabytes.
+    const plan = transcodePlan({
+      fileName: file.name,
+      contentType: file.type,
+      bytes: data.byteLength,
+      channels: decoded.numberOfChannels,
+      sampleRate: decoded.sampleRate,
+    });
+    let payload = { data, fileName: file.name, contentType: file.type || "audio/mpeg" };
+    let conversion: string | undefined;
+    if (plan.action === "transcode") {
+      const label = `Converting ${plan.reason} (${mb(data.byteLength)}) to ${
+        plan.targetChannels === 1 ? "mono" : "stereo"
+      } MP3`;
+      setConverting(`${label}…`);
+      try {
+        const mp3 = await transcodeToMp3(decoded, plan, (f) =>
+          setConverting(`${label}… ${Math.round(f * 100)}%`),
+        );
+        payload = { data: mp3, fileName: mp3FileName(file.name), contentType: "audio/mpeg" };
+        conversion = `${plan.reason} → ${plan.targetChannels === 1 ? "mono" : "stereo"} MP3, ${mb(
+          data.byteLength,
+        )} → ${mb(mp3.byteLength)}`;
+      } catch {
+        // Conversion is an optimization, not a gate — fall back to the original.
+        setNote("In-browser conversion failed — continuing with the original file.");
+      }
+      setConverting(null);
+    }
     setDraft({
       title: tags.title ?? file.name.replace(/\.[^.]+$/, ""),
       artist: tags.artist ?? "",
-      duration,
-      data,
-      fileName: file.name,
-      contentType: file.type || "audio/mpeg",
+      duration: decoded.duration,
+      ...payload,
+      ...(conversion ? { conversion } : {}),
     });
   };
 
@@ -352,7 +391,12 @@ export function AddSong({
     <div className="space-y-3">
       {draft ? (
         <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-          <p className="truncate text-xs text-white/40">{draft.fileName}</p>
+          <p className="truncate text-xs text-white/40">
+            {draft.fileName}
+            {draft.conversion ? (
+              <span className="text-neon/80"> · converted in-browser: {draft.conversion}</span>
+            ) : null}
+          </p>
           <input
             dir="auto"
             value={draft.title}
@@ -517,6 +561,7 @@ export function AddSong({
       ) : (
         <button
           onClick={() => inputRef.current?.click()}
+          disabled={converting !== null}
           onDragOver={(e) => {
             e.preventDefault();
             setDragOver(true);
@@ -529,14 +574,17 @@ export function AddSong({
             if (file) void acceptFile(file);
           }}
           className={`w-full rounded-2xl border border-dashed px-4 py-8 text-sm transition ${
-            dragOver
-              ? "border-neon bg-neon/10 text-white"
-              : "border-white/20 text-white/50 hover:border-white/40"
+            converting !== null
+              ? "border-neon/40 text-neon"
+              : dragOver
+                ? "border-neon bg-neon/10 text-white"
+                : "border-white/20 text-white/50 hover:border-white/40"
           }`}
         >
-          {libraryEnabled
-            ? "Drop a lawfully acquired MP3 here (or click). Pick its lyric sheet, audition it against your file, then add it to the private library — stems separated, words timed."
-            : "Drop a lawfully acquired MP3 here (or click) — metadata is read locally, timed lyrics are fetched, and you sing right away. The audio never leaves this tab."}
+          {converting ??
+            (libraryEnabled
+              ? "Drop a lawfully acquired song here (or click). Big lossless or surround files are converted to a stereo MP3 right in your browser. Pick a lyric sheet, audition it against your file, then add it to the private library — stems separated, words timed."
+              : "Drop a lawfully acquired song here (or click) — metadata is read locally, timed lyrics are fetched, and you sing right away. The audio never leaves this tab.")}
         </button>
       )}
 

@@ -80,6 +80,9 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.2.7(react@19.2.7)
+      wasm-media-encoders:
+        specifier: ^0.7.0
+        version: 0.7.0
     devDependencies:
       '@aubron/eslint-config':
         specifier: workspace:*
@@ -4729,6 +4732,10 @@ packages:
         optional: true
       jsdom:
         optional: true
+
+  wasm-media-encoders@0.7.0:
+    resolution: {integrity: sha512-Sp4wUasgxOK/IFfNhpon6LQQgYGwtpxyV4isjGIe1rvhnJL3w2KYr4f+CdqDNtGPDcgCDRY+uBanVfSx6Si0WQ==}
+    engines: {node: '>= 10'}
 
   webidl-conversions@3.0.1:
     resolution: {integrity: sha512-2JAn3z8AR6rjK8Sm8orRC0h/bcl/DqL7tRPdGZ4I1CjdF+EaMLmYxBHyXuKL849eucPFhvBoxMsflfOb8kxaeQ==}
@@ -10150,6 +10157,10 @@ snapshots:
       '@types/node': 26.0.0
     transitivePeerDependencies:
       - msw
+
+  wasm-media-encoders@0.7.0:
+    dependencies:
+      '@swc/helpers': 0.5.23
 
   webidl-conversions@3.0.1: {}
 

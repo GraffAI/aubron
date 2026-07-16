@@ -25,6 +25,14 @@ section for the deploy model.
 - **Drop an MP3** — reads ID3 metadata locally, looks up timed lyrics, and
   starts a session-local sing. The audio never leaves the browser. No
   separation happens client-side, so the full mix rides the instrumental fader.
+- **In-browser transcoding** — a lossless (FLAC/WAV/AIFF) or surround upload
+  is downmixed to stereo and encoded to MP3 (LAME compiled to WebAssembly,
+  `wasm-media-encoders`) _in the browser_ before anything is uploaded — a
+  600 MB 6-channel FLAC leaves the tab as a few stereo megabytes. Compressed
+  stereo files (MP3/AAC/OGG/Opus) pass through untouched; a failed conversion
+  falls back to the original bytes. Decision logic lives in
+  `app/lib/transcode.ts` (`transcodePlan`), unit-tested; the conversion is
+  reported in the draft card so nobody wonders where their surround mix went.
 - **Auth** — set `KARAOKE_PASSCODE` and every page _and every stem file_ sits
   behind an HMAC-signed session cookie (`middleware.ts`). The library is for
   the household that lawfully owns the music; lawfully acquired ≠ lawfully
