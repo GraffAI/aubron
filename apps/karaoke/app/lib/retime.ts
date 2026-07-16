@@ -21,6 +21,20 @@ const norm = (w: string) =>
     .normalize("NFKD")
     .replace(/[^\p{L}\p{N}]+/gu, "");
 
+// Han, kana, and halfwidth-kana ranges: scripts written without spaces, where
+// "word" must mean "character" for any whitespace-based matching to work.
+const CJK_RANGES =
+  "\\u2E80-\\u2EFF\\u3000-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF\\uFF66-\\uFF9F";
+const CJK_CHAR = new RegExp(`[${CJK_RANGES}]`);
+const CJK_SPLIT = new RegExp(`([${CJK_RANGES}])`, "u");
+
+/** Whitespace token → matchable subtokens: CJK runs split per character so
+ *  Japanese/Chinese lines (no spaces) don't collapse into one giant "word". */
+function subTokens(raw: string): string[] {
+  if (!CJK_CHAR.test(raw)) return [raw];
+  return raw.split(CJK_SPLIT).filter((s) => s.length > 0);
+}
+
 /** Strip line/word tags from LRC (or pass plain text through) → text lines. */
 export function lyricsToPlainLines(text: string): string[] {
   const parsed = parseLrc(text);
@@ -109,6 +123,57 @@ export function wordsToLrc(words: TimedToken[]): string | null {
 }
 
 /**
+ * Map a forced-aligner's output DIRECTLY onto the sheet it was given. The
+ * aligner's tokens are substrings of our own text in order, so a cursor walk
+ * places each on its line — no whitespace assumptions, which is what makes
+ * Japanese (spaceless) and Arabic sheets work. Returns null when too many
+ * tokens fail to place (the aligner returned something else entirely).
+ */
+export function alignedWordsToLrc(seedText: string, tokens: TimedToken[]): string | null {
+  const lines = lyricsToPlainLines(seedText);
+  const clean = tokens.filter((t) => t.word.trim().length > 0 && Number.isFinite(t.start));
+  if (lines.length === 0 || clean.length === 0) return null;
+
+  const perLine: TimedToken[][] = lines.map(() => []);
+  let lineIdx = 0;
+  let offset = 0;
+  let misses = 0;
+  for (const t of clean) {
+    const token = t.word.trim();
+    let placed = false;
+    for (let li = lineIdx; li < lines.length && li <= lineIdx + 2; li++) {
+      const from = li === lineIdx ? offset : 0;
+      const at = lines[li]!.indexOf(token, from);
+      // "Nearby" guard: a token that only matches far ahead is likely a
+      // mismatch (e.g. a repeated chorus word) — don't let it skip content.
+      if (at >= 0 && at - from <= 32) {
+        perLine[li]!.push({ word: token, start: t.start });
+        lineIdx = li;
+        offset = at + token.length;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) misses++;
+  }
+  if (misses / clean.length > 0.25) return null;
+
+  // Aligners are monotonic, but enforce it across line boundaries anyway.
+  let lastTime = 0;
+  const out: string[] = [];
+  for (const lineTokens of perLine) {
+    if (lineTokens.length === 0) continue;
+    for (const t of lineTokens) {
+      if (t.start < lastTime) t.start = lastTime;
+      lastTime = t.start;
+    }
+    const body = lineTokens.map((t) => `<${lrcTime(t.start)}>${t.word}`).join(" ");
+    out.push(`[${lrcTime(lineTokens[0]!.start)}]${body}`);
+  }
+  return out.length > 0 ? out.join("\n") : null;
+}
+
+/**
  * Retime `lyricsText` (plain or LRC) using Whisper's heard words. Returns
  * enhanced LRC, or null when too few words anchor (< 35%) — a sign Whisper
  * heard a different song than the sheet claims, where transplanted timing
@@ -123,10 +188,16 @@ export function retimeLyrics(
   const words: { text: string; line: number }[] = [];
   for (const [lineIndex, line] of lines.entries()) {
     for (const raw of line.split(/\s+/)) {
-      if (raw.trim()) words.push({ text: raw.trim(), line: lineIndex });
+      for (const sub of subTokens(raw.trim())) {
+        if (sub) words.push({ text: sub, line: lineIndex });
+      }
     }
   }
-  const heardClean = heard.filter((h) => Number.isFinite(h.start) && norm(h.word).length > 0);
+  const heardClean = heard
+    .flatMap((h) =>
+      subTokens(h.word.trim()).map((sub) => ({ word: sub, start: h.start }) as TimedToken),
+    )
+    .filter((h) => Number.isFinite(h.start) && norm(h.word).length > 0);
   // Cap the DP so pathological inputs can't chew serverless memory.
   if (
     words.length === 0 ||

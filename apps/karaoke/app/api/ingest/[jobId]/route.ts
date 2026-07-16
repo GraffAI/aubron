@@ -11,7 +11,7 @@ import {
   startAlignment,
   whisperxToLrc,
 } from "../../../lib/pipeline";
-import { retimeLyrics, wordsToLrc } from "../../../lib/retime";
+import { alignedWordsToLrc, retimeLyrics, wordsToLrc } from "../../../lib/retime";
 import { getObjectBytes, isStorageConfigured, presignGet } from "../../../lib/storage";
 import type { IngestJob } from "../../../lib/types";
 
@@ -191,7 +191,9 @@ async function alignWithElevenLabs(job: IngestJob, songId: string) {
   try {
     if (job.seedPlain) {
       const words = await elevenLabsAlign(audio, job.seedPlain);
-      const lrc = retimeLyrics(job.seedPlain, words);
+      // Direct cursor mapping first (script-agnostic — spaceless Japanese and
+      // RTL Arabic included); fuzzy transplant as the shape-mismatch fallback.
+      const lrc = alignedWordsToLrc(job.seedPlain, words) ?? retimeLyrics(job.seedPlain, words);
       return finish(
         lrc,
         lrc

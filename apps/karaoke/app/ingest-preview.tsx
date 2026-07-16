@@ -139,7 +139,7 @@ export function IngestPreview({ songId }: { songId: string }) {
 
       {lines.length > 0 ? (
         <div className="min-h-16 space-y-1 text-center">
-          <p className="font-display text-lg leading-tight">
+          <p dir="auto" className="font-display text-lg leading-tight">
             {line?.words ? (
               line.words.map((word, wi) => (
                 <span key={wi} className={time >= word.time ? "text-neon" : "text-white/80"}>
@@ -152,7 +152,11 @@ export function IngestPreview({ songId }: { songId: string }) {
               </span>
             )}
           </p>
-          {next ? <p className="truncate text-sm text-white/30">{next.text}</p> : null}
+          {next ? (
+            <p dir="auto" className="truncate text-sm text-white/30">
+              {next.text}
+            </p>
+          ) : null}
         </div>
       ) : null}
 

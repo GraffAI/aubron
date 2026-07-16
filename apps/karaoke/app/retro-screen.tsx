@@ -20,11 +20,24 @@ const INK = "#f0f0f0";
 const SUNG = "#f8d838";
 const ACCENT = "#e050d0";
 
+/** RTL scripts (Arabic, Hebrew): the highlight wipe must run right→left. */
+const RTL_CHAR = new RegExp("[\\u0590-\\u07BF\\u08A0-\\u08FF\\uFB1D-\\uFDFF\\uFE70-\\uFEFF]");
+
 function wrap(text: string, max: number): string[] {
   const words = text.toUpperCase().split(" ");
   const rows: string[] = [];
   let row = "";
   for (const word of words) {
+    // Spaceless scripts (Japanese/Chinese) arrive as one giant "word" —
+    // hard-split so lines never paint off-screen. CJK glyphs are wide, so
+    // budget roughly half the column count.
+    if (word.length > max) {
+      if (row) rows.push(row);
+      row = "";
+      const step = Math.max(4, Math.floor(max / 2));
+      for (let i = 0; i < word.length; i += step) rows.push(word.slice(i, i + step));
+      continue;
+    }
     if (row && (row + " " + word).length > max) {
       rows.push(row);
       row = word;
@@ -102,6 +115,8 @@ function draw(ctx: CanvasRenderingContext2D, s: DrawState): void {
       progress = (t - line.time) / Math.max(0.5, lineEnd - line.time);
     }
     progress = Math.max(0, Math.min(1, Math.floor(progress * 12) / 12));
+    // Arabic/Hebrew read right-to-left: the wipe starts from the right edge.
+    const rtl = RTL_CHAR.test(line.text);
     ctx.save();
     const total = rows.length;
     const done = progress * total;
@@ -110,8 +125,10 @@ function draw(ctx: CanvasRenderingContext2D, s: DrawState): void {
       const rowProgress = Math.max(0, Math.min(1, done - i));
       if (rowProgress === 0) return;
       const width = ctx.measureText(row).width;
+      const wipe = (width + 4) * rowProgress;
+      const left = rtl ? W / 2 + width / 2 + 2 - wipe : W / 2 - width / 2 - 2;
       ctx.beginPath();
-      ctx.rect(W / 2 - width / 2 - 2, rowY - 10, (width + 4) * rowProgress, 20);
+      ctx.rect(left, rowY - 10, wipe, 20);
       ctx.clip();
       ctx.fillStyle = SUNG;
       ctx.fillText(row, W / 2, rowY);

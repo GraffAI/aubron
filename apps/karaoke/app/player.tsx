@@ -153,8 +153,12 @@ export function Player({ song: serverSong, songId }: { song: Song | null; songId
           ← Library
         </Link>
         <div className="min-w-0 flex-1 text-center">
-          <span className="block truncate font-medium">{song?.title ?? "…"}</span>
-          <span className="block truncate text-xs text-white/40">{song?.artist}</span>
+          <span dir="auto" className="block truncate font-medium">
+            {song?.title ?? "…"}
+          </span>
+          <span dir="auto" className="block truncate text-xs text-white/40">
+            {song?.artist}
+          </span>
         </div>
         {song ? <SongInfo song={song} /> : null}
         <button
