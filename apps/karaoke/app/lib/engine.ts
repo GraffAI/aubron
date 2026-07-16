@@ -117,7 +117,9 @@ export class KaraokeEngine {
 
   /** A local file has no separated stems: the full mix rides the instrumental fader. */
   async loadLocalMix(data: ArrayBuffer): Promise<void> {
-    this.loadBuffers(null, await this.ctx.decodeAudioData(data));
+    // decodeAudioData detaches its input — decode a copy so the session-local
+    // bytes survive a replay (and StrictMode's double effect-mount in dev).
+    this.loadBuffers(null, await this.ctx.decodeAudioData(data.slice(0)));
   }
 
   // ── transport ────────────────────────────────────────────────────────────
