@@ -68,7 +68,7 @@ async function pollSeparation(job: IngestJob) {
     return NextResponse.json({ jobId: job.id, status: "error", error });
   };
 
-  let stems: { vocals?: string; instrumental?: string } = {};
+  let stems: { vocals?: string; backing?: string[] } = {};
   if (job.predictionUrl) {
     const prediction = await getPrediction(job.predictionUrl);
     if (prediction.status === "starting" || prediction.status === "processing") {
@@ -78,7 +78,12 @@ async function pollSeparation(job: IngestJob) {
       return fail(prediction.error ?? `separation ${prediction.status}`);
     }
     stems = pickStems(prediction.output);
-    if (!stems.vocals && !stems.instrumental) return fail("unrecognized separation output shape");
+    // Record what the provider actually returned — the ⓘ report shows it.
+    if (prediction.output && typeof prediction.output === "object") {
+      job.separationOutputKeys = Object.keys(prediction.output as Record<string, unknown>);
+    }
+    if (!stems.vocals && stems.backing?.length === 0)
+      return fail("unrecognized separation output shape");
   }
 
   const done = await finalizeJob(job, stems);

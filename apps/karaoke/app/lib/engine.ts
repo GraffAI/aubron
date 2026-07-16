@@ -22,6 +22,8 @@
  * disabled per-mic — they're built for speech calls and mangle singing.
  */
 
+import { estimateBufferLag } from "./align-lag";
+
 export type StemGains = { vocals: number; instrumental: number };
 
 export interface MicChannel {
@@ -51,6 +53,7 @@ export class KaraokeEngine {
   private buffers: {
     vocals: AudioBuffer | null;
     instrumental: AudioBuffer;
+    extras: AudioBuffer[];
     full: AudioBuffer | null;
   } | null = null;
   private vocalsValue = 0.25; // karaoke: guide vocals ducked by default
@@ -59,6 +62,8 @@ export class KaraokeEngine {
   private playGeneration = 0;
   private startedAt = 0; // ctx.currentTime when playback began
   private offset = 0; // song position when paused / at play start
+  /** Seconds the backing stem runs late vs the full mix (codec delay). */
+  private instLagSeconds = 0;
   private _playing = false;
   private mics = new Map<number, MicNodes>();
   private nextMicId = 1;
@@ -88,17 +93,27 @@ export class KaraokeEngine {
     vocals: AudioBuffer | null,
     instrumental: AudioBuffer,
     full: AudioBuffer | null = null,
+    extras: AudioBuffer[] = [],
   ): void {
     this.stop();
-    this.buffers = { vocals, instrumental, full };
+    this.buffers = { vocals, instrumental, extras, full };
     this.duration = instrumental.duration;
     this.offset = 0;
+    // The separated backing is a re-encoded MP3 and codecs add decoder delay,
+    // so it runs tens of ms late vs the untouched full mix. The crossfade
+    // SUMS the two — misaligned, that's a comb filter that guts kick/bass.
+    // Measure the lag once and compensate at source start.
+    this.instLagSeconds = 0;
+    if (full) {
+      this.instLagSeconds = estimateBufferLag(full, instrumental) ?? 0;
+    }
     this.applyTrackGains(true);
   }
 
   async loadFromUrls(urls: {
     vocals?: string;
     instrumental: string;
+    extras?: string[];
     full?: string;
   }): Promise<void> {
     const fetchStem = async (url: string) => {
@@ -107,12 +122,13 @@ export class KaraokeEngine {
       return this.ctx.decodeAudioData(await res.arrayBuffer());
     };
     // With a full mix available the vocal stem isn't played — don't fetch it.
-    const [instrumental, full, vocals] = await Promise.all([
+    const [instrumental, full, vocals, extras] = await Promise.all([
       fetchStem(urls.instrumental),
       urls.full ? fetchStem(urls.full) : Promise.resolve(null),
       !urls.full && urls.vocals ? fetchStem(urls.vocals) : Promise.resolve(null),
+      Promise.all((urls.extras ?? []).map(fetchStem)),
     ]);
-    this.loadBuffers(vocals, instrumental, full);
+    this.loadBuffers(vocals, instrumental, full, extras);
   }
 
   /** A local file has no separated stems: the full mix rides the instrumental fader. */
@@ -137,10 +153,14 @@ export class KaraokeEngine {
     if (this.offset >= this.duration) this.offset = 0;
     const generation = ++this.playGeneration;
     this.sources = [];
-    const start = (buffer: AudioBuffer, dest: GainNode, watchEnd: boolean) => {
+    // Alignment compensation: skip the codec-delay head of whichever signal
+    // runs late, so full and backing sum in phase at every fader position.
+    const fullSkip = Math.max(0, -this.instLagSeconds);
+    const instSkip = Math.max(0, this.instLagSeconds);
+    const start = (buffer: AudioBuffer, dest: GainNode, watchEnd: boolean, skip = 0) => {
       const src = new AudioBufferSourceNode(this.ctx, { buffer });
       src.connect(dest);
-      src.start(0, this.offset);
+      src.start(0, Math.min(this.offset + skip, buffer.duration));
       if (watchEnd) {
         src.onended = () => {
           // Only a natural end of the *current* playback run counts.
@@ -152,9 +172,12 @@ export class KaraokeEngine {
       }
       this.sources.push(src);
     };
-    if (this.buffers.full) start(this.buffers.full, this.vocalsLeg, false);
+    if (this.buffers.full) start(this.buffers.full, this.vocalsLeg, false, fullSkip);
     else if (this.buffers.vocals) start(this.buffers.vocals, this.vocalsLeg, false);
-    start(this.buffers.instrumental, this.instLeg, true);
+    start(this.buffers.instrumental, this.instLeg, true, instSkip);
+    // 4-stem providers: bass/other parts sum into the same backing leg —
+    // together with the first part they reconstruct the full instrumental.
+    for (const extra of this.buffers.extras) start(extra, this.instLeg, false, instSkip);
     this.startedAt = this.ctx.currentTime;
     this._playing = true;
   }

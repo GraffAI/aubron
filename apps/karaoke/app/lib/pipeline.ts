@@ -169,22 +169,29 @@ export async function getPrediction(predictionUrl: string): Promise<PredictionSt
 }
 
 /**
- * Demucs deployments name their two-stem outputs inconsistently; accept the
- * common spellings. Returns undefineds when the shape is unrecognized.
+ * Separation deployments disagree about output shape. Two-stem outputs
+ * (no_vocals/instrumental/accompaniment/backing) map to a single backing
+ * track. Four-stem outputs (drums/bass/other) map to MULTIPLE backing parts
+ * that the player sums — critically, `other` alone must never be mistaken
+ * for the instrumental when drums/bass are also present: it's the
+ * synths/guitars-only stem, and treating it as the backing is exactly how
+ * drums and bass vanish from a karaoke track.
  */
-export function pickStems(output: unknown): { vocals?: string; instrumental?: string } {
-  if (typeof output !== "object" || output === null) return {};
+export function pickStems(output: unknown): { vocals?: string; backing: string[] } {
+  if (typeof output !== "object" || output === null) return { backing: [] };
   const map = output as Record<string, unknown>;
   const url = (v: unknown) => (typeof v === "string" && v.length > 0 ? v : undefined);
-  return {
-    vocals: url(map.vocals),
-    instrumental:
-      url(map.no_vocals) ??
-      url(map.instrumental) ??
-      url(map.accompaniment) ??
-      url(map.backing) ??
-      url(map.other),
-  };
+  const vocals = url(map.vocals);
+  const twoStem =
+    url(map.no_vocals) ?? url(map.instrumental) ?? url(map.accompaniment) ?? url(map.backing);
+  if (twoStem) return { vocals, backing: [twoStem] };
+  const fourStem = [url(map.drums), url(map.bass), url(map.other)].filter(
+    (u): u is string => u !== undefined,
+  );
+  if (fourStem.length >= 2) return { vocals, backing: fourStem };
+  // `other` by itself (no drums/bass alongside) genuinely is everything-else.
+  const otherOnly = url(map.other);
+  return { vocals, backing: otherOnly ? [otherOnly] : [] };
 }
 
 // ── word timing (forced alignment) ──────────────────────────────────────────

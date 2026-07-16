@@ -1,4 +1,4 @@
-import { isSeparationConfigured, startSeparation } from "./pipeline";
+import { buildSeparationInput, isSeparationConfigured, startSeparation } from "./pipeline";
 import { getJson, getObjectBytes, presignGet, putJson, putObject } from "./storage";
 import type { IngestJob, IngestReport, StoredLibraryEntry } from "./types";
 
@@ -69,6 +69,9 @@ export const ingestReportKey = (songId: string) => `library/${songId}/ingest.jso
  */
 export async function launchJob(job: IngestJob): Promise<IngestJob> {
   if (isSeparationConfigured()) {
+    // Record the exact input (audio URL redacted) so the ingest report can
+    // prove which model/config actually ran.
+    job.separationInput = buildSeparationInput("<presigned-audio-url>");
     const start = await startSeparation(await presignGet(job.key)).catch((err: unknown) => ({
       started: false as const,
       reason: err instanceof Error ? err.message : "separation request failed",
@@ -97,7 +100,7 @@ export async function launchJob(job: IngestJob): Promise<IngestJob> {
  */
 export async function finalizeJob(
   job: IngestJob,
-  stemUrls: { vocals?: string; instrumental?: string },
+  stemUrls: { vocals?: string; backing?: string[] },
 ): Promise<IngestJob> {
   const songId =
     job.targetSongId ?? `${slugify(`${job.artist} ${job.title}`)}-${job.id.slice(0, 6)}`;
@@ -107,8 +110,16 @@ export async function finalizeJob(
   if (!original) throw new Error("uploaded original disappeared from storage");
   const { ext: origExt, mime: origMime } = audioExt(job.key);
 
-  if (stemUrls.instrumental) {
-    stems.instrumental = await storeStem(songId, "backing", stemUrls.instrumental);
+  const backing = stemUrls.backing ?? [];
+  if (backing.length > 0) {
+    // One part (two-stem providers) or several (4-stem: drums/bass/other) —
+    // the player sums them, so nothing is lost picking one.
+    stems.instrumental = await storeStem(songId, "backing", backing[0]!);
+    if (backing.length > 1) {
+      stems.extras = await Promise.all(
+        backing.slice(1).map((url, i) => storeStem(songId, `backing${i + 2}`, url)),
+      );
+    }
     stems.full = `library/${songId}/full.${origExt}`;
     await putObject(stems.full, original, origMime);
   } else {
@@ -145,10 +156,14 @@ export async function finalizeJob(
     addedAt: entry.addedAt,
     lyrics: job.lyrics ?? null,
     separation: {
-      used: Boolean(stemUrls.instrumental || stemUrls.vocals),
+      used: Boolean(backing.length > 0 || stemUrls.vocals),
       note: job.predictionUrl
-        ? "separated via Replicate"
+        ? backing.length > 1
+          ? `separated via Replicate (4-stem output: player sums ${backing.length} backing parts)`
+          : "separated via Replicate"
         : (job.separationNote ?? "no separation provider"),
+      ...(job.separationInput ? { input: job.separationInput } : {}),
+      ...(job.separationOutputKeys ? { outputStems: job.separationOutputKeys } : {}),
     },
     stems,
   };
