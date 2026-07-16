@@ -80,7 +80,7 @@ export function LyricCandidatePreview({
       </div>
       {lines.length > 0 ? (
         <div className="min-h-12 text-center">
-          <p className="font-display leading-tight">
+          <p dir="auto" className="font-display leading-tight">
             {line?.words ? (
               line.words.map((word, wi) => (
                 <span key={wi} className={time >= word.time ? "text-neon" : "text-white/80"}>
@@ -93,10 +93,17 @@ export function LyricCandidatePreview({
               </span>
             )}
           </p>
-          {next ? <p className="truncate text-xs text-white/30">{next.text}</p> : null}
+          {next ? (
+            <p dir="auto" className="truncate text-xs text-white/30">
+              {next.text}
+            </p>
+          ) : null}
         </div>
       ) : plain ? (
-        <p className="max-h-24 overflow-y-auto whitespace-pre-line text-xs text-white/50">
+        <p
+          dir="auto"
+          className="max-h-24 overflow-y-auto whitespace-pre-line text-xs text-white/50"
+        >
           {plain.split("\n").slice(0, 8).join("\n")}
         </p>
       ) : null}

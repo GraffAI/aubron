@@ -245,12 +245,14 @@ export function SongInfo({ song }: { song: Song }) {
                     Missed lyrics are usually a metadata mismatch — fix the names and search again:
                   </p>
                   <input
+                    dir="auto"
                     value={artist}
                     onChange={(e) => setArtist(e.target.value)}
                     placeholder="Artist"
                     className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-neon/60"
                   />
                   <input
+                    dir="auto"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="Title"

@@ -354,6 +354,7 @@ export function AddSong({
         <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
           <p className="truncate text-xs text-white/40">{draft.fileName}</p>
           <input
+            dir="auto"
             value={draft.title}
             onChange={(e) => setDraft({ ...draft, title: e.target.value })}
             placeholder="Title"
@@ -361,6 +362,7 @@ export function AddSong({
             className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-neon/60 disabled:opacity-50"
           />
           <input
+            dir="auto"
             value={draft.artist}
             onChange={(e) => setDraft({ ...draft, artist: e.target.value })}
             placeholder="Artist (needed for the lyrics search)"

@@ -40,6 +40,9 @@ export function LyricsView({ lines, time }: { lines: LyricLine[]; time: number }
           <p
             key={i}
             data-line={i}
+            // dir="auto": RTL lines (Arabic) lay out right-to-left, which also
+            // makes the word sweep run in reading order for free.
+            dir="auto"
             className={`px-4 py-3 font-display text-3xl leading-tight transition-all duration-300 md:text-5xl ${
               isCurrent ? "scale-100 text-white" : "scale-90 text-white/25"
             }`}
