@@ -242,7 +242,9 @@ export function AddSong({
       { id: "separate", label: "Stem separation (Demucs)", state: "pending", detail: "" },
       {
         id: "align",
-        label: pickedCandidate ? "Word timing (WhisperX transplant)" : "Word timing (WhisperX)",
+        label: pickedCandidate
+          ? "Word timing (align chosen sheet)"
+          : "Word timing (AI transcription)",
         state: "pending",
         detail: alignmentEnabled ? (alignWanted ? "" : "not requested") : "not configured",
       },
@@ -457,15 +459,15 @@ export function AddSong({
                       className="mt-0.5 accent-[var(--color-neon)]"
                     />
                     <span>
-                      <span className="text-white/80">Retime this sheet with AI (WhisperX)</span> —
-                      keeps the chosen words, transplants word-level timing heard from the vocal.
-                      You can compare and switch back afterwards.
+                      <span className="text-white/80">Retime this sheet with AI</span> — keeps the
+                      chosen words, transplants word-level timing heard from the vocal. You can
+                      compare and switch back afterwards.
                     </span>
                   </label>
                 )
               ) : (
                 <p className="text-xs text-white/40">
-                  AI word timing not configured (REPLICATE_WHISPERX_VERSION) — provider timing only.
+                  AI word timing not configured (set ELEVENLABS_API_KEY) — provider timing only.
                 </p>
               )}
             </div>

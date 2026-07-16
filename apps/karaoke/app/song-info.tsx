@@ -79,7 +79,7 @@ export function SongInfo({ song }: { song: Song }) {
   const [manageMsg, setManageMsg] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  /** WhisperX word timing over the stored vocal stem — even on an LRCLIB hit. */
+  /** AI word timing over the stored vocal stem — even on an LRCLIB hit. */
   const retime = async () => {
     setManaging("aligning");
     setManageMsg("");
@@ -309,9 +309,7 @@ export function SongInfo({ song }: { song: Song }) {
                       disabled={managing !== "idle"}
                       className="flex-1 rounded-lg border border-neon/40 px-3 py-2 text-sm text-neon transition hover:bg-neon/10 disabled:opacity-40"
                     >
-                      {managing === "aligning"
-                        ? "Word-timing…"
-                        : "Re-time words with AI (WhisperX)"}
+                      {managing === "aligning" ? "Word-timing…" : "Re-time words with AI"}
                     </button>
                   ) : null}
                   <button

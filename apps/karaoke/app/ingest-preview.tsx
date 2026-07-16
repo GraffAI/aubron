@@ -169,7 +169,7 @@ export function IngestPreview({ songId }: { songId: string }) {
                   : "border-white/15 text-white/50 hover:text-white"
               }`}
             >
-              {source === "ai" ? "AI (WhisperX)" : "Provider (LRCLIB)"}
+              {source === "ai" ? "AI timing" : "Provider timing"}
             </button>
           ))}
           <span className="text-white/30">— compare, keep whichever sounds right</span>

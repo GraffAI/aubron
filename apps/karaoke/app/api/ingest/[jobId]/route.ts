@@ -1,16 +1,18 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+import { ElevenLabsError, elevenLabsAlign, elevenLabsTranscribe } from "../../../lib/elevenlabs";
 import { applyAlignment, finalizeJob, readJob, writeJob } from "../../../lib/ingest";
 import {
+  alignmentProvider,
   flattenWhisperWords,
   getPrediction,
   pickStems,
   startAlignment,
   whisperxToLrc,
 } from "../../../lib/pipeline";
-import { retimeLyrics } from "../../../lib/retime";
-import { isStorageConfigured, presignGet } from "../../../lib/storage";
+import { retimeLyrics, wordsToLrc } from "../../../lib/retime";
+import { getObjectBytes, isStorageConfigured, presignGet } from "../../../lib/storage";
 import type { IngestJob } from "../../../lib/types";
 
 // Finalizing downloads stems from the provider and re-uploads to the bucket.
@@ -83,22 +85,40 @@ async function pollSeparation(job: IngestJob) {
 
   // Song is live; word timing is an upgrade pass over the stored vocal stem.
   if (job.align && done.storedStems?.vocals && done.songId) {
-    const start = await startAlignment(await presignGet(done.storedStems.vocals)).catch(
-      (err: unknown) => ({
-        started: false as const,
-        reason: err instanceof Error ? err.message : "alignment request failed",
-      }),
-    );
-    if (start.started) {
+    const provider = alignmentProvider();
+    if (provider === "elevenlabs") {
+      // Synchronous provider: hand off to the aligning phase, which does the
+      // call on the next poll (keeps this response snappy).
       const aligning: IngestJob = {
         ...done,
         status: "aligning",
-        alignPredictionUrl: start.job.predictionUrl,
+        alignProvider: "elevenlabs",
+        alignAudioKey: done.storedStems.vocals,
       };
       await writeJob(aligning);
       return NextResponse.json({ jobId: job.id, status: "aligning", songId: done.songId });
     }
-    await applyAlignment(done.songId, null, `word timing not started: ${start.reason}`);
+    if (provider === "replicate") {
+      const start = await startAlignment(await presignGet(done.storedStems.vocals)).catch(
+        (err: unknown) => ({
+          started: false as const,
+          reason: err instanceof Error ? err.message : "alignment request failed",
+        }),
+      );
+      if (start.started) {
+        const aligning: IngestJob = {
+          ...done,
+          status: "aligning",
+          alignProvider: "replicate",
+          alignPredictionUrl: start.job.predictionUrl,
+        };
+        await writeJob(aligning);
+        return NextResponse.json({ jobId: job.id, status: "aligning", songId: done.songId });
+      }
+      await applyAlignment(done.songId, null, `word timing not started: ${start.reason}`);
+    } else {
+      await applyAlignment(done.songId, null, "word timing skipped: no provider configured");
+    }
   } else if (job.align && done.songId) {
     await applyAlignment(done.songId, null, "word timing skipped: no vocal stem stored");
   }
@@ -107,7 +127,12 @@ async function pollSeparation(job: IngestJob) {
 
 async function pollAlignment(job: IngestJob) {
   const songId = job.songId ?? job.targetSongId;
-  if (!job.alignPredictionUrl || !songId) {
+  if (!songId) {
+    await writeJob({ ...job, status: "done" });
+    return NextResponse.json({ jobId: job.id, status: "done", songId });
+  }
+  if (job.alignProvider === "elevenlabs") return alignWithElevenLabs(job, songId);
+  if (!job.alignPredictionUrl) {
     await writeJob({ ...job, status: "done" });
     return NextResponse.json({ jobId: job.id, status: "done", songId });
   }
@@ -145,4 +170,45 @@ async function pollAlignment(job: IngestJob) {
   }
   await writeJob({ ...job, status: "done", songId });
   return NextResponse.json({ jobId: job.id, status: "done", songId });
+}
+
+/**
+ * ElevenLabs is synchronous: this poll request does the actual work. With a
+ * chosen sheet it's TRUE forced alignment (the text goes to the model, every
+ * word of it comes back timestamped — retimeLyrics then just formats, since
+ * ~everything anchors). Without a sheet, Scribe transcribes with word
+ * timestamps and heuristic line breaks. 4xx errors are fatal (bad key, bad
+ * input) and settle the job; transient errors bubble to the retry catch.
+ */
+async function alignWithElevenLabs(job: IngestJob, songId: string) {
+  const finish = async (lrc: string | null, note: string) => {
+    await applyAlignment(songId, lrc, note);
+    await writeJob({ ...job, status: "done", songId });
+    return NextResponse.json({ jobId: job.id, status: "done", songId });
+  };
+  const audio = await getObjectBytes(job.alignAudioKey ?? job.key);
+  if (!audio) return finish(null, "word timing skipped: vocal stem missing from storage");
+  try {
+    if (job.seedPlain) {
+      const words = await elevenLabsAlign(audio, job.seedPlain);
+      const lrc = retimeLyrics(job.seedPlain, words);
+      return finish(
+        lrc,
+        lrc
+          ? "chosen lyrics force-aligned via ElevenLabs"
+          : "alignment rejected: too few words matched the audio (wrong sheet?)",
+      );
+    }
+    const words = await elevenLabsTranscribe(audio);
+    const lrc = wordsToLrc(words);
+    return finish(
+      lrc,
+      lrc ? "transcribed + word-timed via ElevenLabs Scribe" : "transcription heard no words",
+    );
+  } catch (err) {
+    if (err instanceof ElevenLabsError && err.fatal) {
+      return finish(null, `word timing failed: ${err.message}`);
+    }
+    throw err; // transient — outer catch leaves the job aligning for a retry
+  }
 }

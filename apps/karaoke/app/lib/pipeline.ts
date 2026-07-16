@@ -164,14 +164,24 @@ export function pickStems(output: unknown): { vocals?: string; instrumental?: st
 
 // ── word timing (forced alignment) ──────────────────────────────────────────
 //
-// WhisperX = Whisper (the speech model) + a phoneme-alignment pass that emits
-// word-level timestamps. Run over the ISOLATED VOCAL stem — aligning against
-// the full mix makes the aligner hallucinate on drums — it produces the
-// word-timed lyrics that drive the karaoke sweep, independent of whether
-// LRCLIB had anything.
+// Two providers, both run over the ISOLATED VOCAL stem (aligning against the
+// full mix makes any aligner hallucinate on drums):
+//
+// - ElevenLabs (preferred when ELEVENLABS_API_KEY is set): true forced
+//   alignment — audio + the chosen lyric TEXT in, a timestamp per word of
+//   that text out — plus Scribe transcription for the no-sheet path. See
+//   lib/elevenlabs.ts.
+// - WhisperX on Replicate (fallback): transcribes, we transplant its
+//   timestamps onto the chosen text (lib/retime.ts).
+
+export function alignmentProvider(): "elevenlabs" | "replicate" | null {
+  if (process.env.ELEVENLABS_API_KEY) return "elevenlabs";
+  if (process.env.REPLICATE_API_TOKEN && process.env.REPLICATE_WHISPERX_VERSION) return "replicate";
+  return null;
+}
 
 export function isAlignmentConfigured(): boolean {
-  return Boolean(process.env.REPLICATE_API_TOKEN && process.env.REPLICATE_WHISPERX_VERSION);
+  return alignmentProvider() !== null;
 }
 
 export async function startAlignment(vocalsUrl: string): Promise<SeparationStart> {
