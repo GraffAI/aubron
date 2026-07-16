@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-import { launchJob } from "../../lib/ingest";
-import { findLyrics } from "../../lib/pipeline";
+import { applyAlignment, launchJob } from "../../lib/ingest";
+import { findLyrics, isAlignmentConfigured } from "../../lib/pipeline";
 import { isStorageConfigured } from "../../lib/storage";
 import type { IngestJob } from "../../lib/types";
 
@@ -15,14 +15,17 @@ interface IngestRequest {
   title: string;
   artist: string;
   durationSeconds?: number;
+  /** Force WhisperX word timing even when LRCLIB returned synced lyrics. */
+  align?: boolean;
 }
 
 /**
  * Autonomous ingestion: uploaded original in the private bucket → timed
- * lyrics (LRCLIB) → stem separation (when configured) → library entry. The
- * job is persisted in the bucket so any serverless instance can carry a poll
- * forward (GET /api/ingest/<jobId>). Without a separation provider the song
- * still lands in the library with the full mix as backing.
+ * lyrics (LRCLIB) → stem separation (when configured) → library entry →
+ * optional WhisperX word timing over the vocal stem. Word timing runs when
+ * explicitly requested OR as an automatic fallback when no synced lyrics
+ * were found. The job is persisted in the bucket so any serverless instance
+ * can carry a poll forward (GET /api/ingest/<jobId>).
  */
 export async function POST(request: NextRequest) {
   if (!isStorageConfigured()) {
@@ -45,6 +48,8 @@ export async function POST(request: NextRequest) {
   }
 
   const lyrics = await findLyrics(body.artist.trim(), body.title.trim(), body.durationSeconds);
+  const wantAlign = body.align === true || lyrics.synced === null;
+  const align = wantAlign && isAlignmentConfigured();
 
   const job: IngestJob = {
     id: crypto.randomUUID(),
@@ -55,15 +60,24 @@ export async function POST(request: NextRequest) {
     lrc: lyrics.synced,
     lyrics,
     predictionUrl: null,
+    align,
     status: "separating",
   };
 
   const launched = await launchJob(job);
+  // Inline finalize (no separation provider) can't word-time: no vocal stem.
+  if (launched.status === "done" && align && launched.songId && !launched.storedStems?.vocals) {
+    await applyAlignment(launched.songId, null, "word timing skipped: no vocal stem stored");
+  }
   return NextResponse.json({
     jobId: launched.id,
     status: launched.status,
     songId: launched.songId,
     lyrics: lyrics.status,
+    align,
+    ...(wantAlign && !align
+      ? { alignNote: "word timing unavailable: REPLICATE_WHISPERX_VERSION not configured" }
+      : {}),
     ...(launched.separationNote ? { separation: `skipped: ${launched.separationNote}` } : {}),
   });
 }

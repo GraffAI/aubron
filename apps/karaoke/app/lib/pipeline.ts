@@ -162,16 +162,90 @@ export function pickStems(output: unknown): { vocals?: string; instrumental?: st
   };
 }
 
-export interface AlignmentResult {
-  available: false;
-  reason: string;
+// ── word timing (forced alignment) ──────────────────────────────────────────
+//
+// WhisperX = Whisper (the speech model) + a phoneme-alignment pass that emits
+// word-level timestamps. Run over the ISOLATED VOCAL stem — aligning against
+// the full mix makes the aligner hallucinate on drums — it produces the
+// word-timed lyrics that drive the karaoke sweep, independent of whether
+// LRCLIB had anything.
+
+export function isAlignmentConfigured(): boolean {
+  return Boolean(process.env.REPLICATE_API_TOKEN && process.env.REPLICATE_WHISPERX_VERSION);
 }
 
-export function alignLyrics(): AlignmentResult {
-  return {
-    available: false,
-    reason:
-      "Forced alignment not configured. Recommended: WhisperX (word-level timestamps via " +
-      "wav2vec2 alignment) run over the separated VOCAL stem, seeded with the plain lyrics.",
-  };
+export async function startAlignment(vocalsUrl: string): Promise<SeparationStart> {
+  const token = process.env.REPLICATE_API_TOKEN;
+  const version = process.env.REPLICATE_WHISPERX_VERSION;
+  if (!token || !version) {
+    return { started: false, reason: "REPLICATE_WHISPERX_VERSION not configured" };
+  }
+  const res = await fetch(`${replicateBase()}/v1/predictions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      version,
+      // whisperx dialect (e.g. victor-upmeet/whisperx): align_output turns on
+      // the word-timestamp pass.
+      input: { audio_file: vocalsUrl, align_output: true },
+    }),
+  });
+  if (!res.ok) {
+    return { started: false, reason: `replicate error ${res.status}: ${await res.text()}` };
+  }
+  const prediction = (await res.json()) as { urls: { get: string } };
+  return { started: true, job: { provider: "replicate", predictionUrl: prediction.urls.get } };
+}
+
+interface WhisperWord {
+  word?: string;
+  text?: string;
+  start?: number;
+}
+
+interface WhisperSegment {
+  start?: number;
+  text?: string;
+  words?: WhisperWord[];
+}
+
+const lrcTime = (seconds: number) => {
+  const m = Math.floor(seconds / 60);
+  const s = seconds - m * 60;
+  return `${String(m).padStart(2, "0")}:${s.toFixed(2).padStart(5, "0")}`;
+};
+
+/**
+ * WhisperX output → enhanced LRC: one line per segment, `<mm:ss.xx>` tags per
+ * word. Words occasionally arrive without a timestamp (numbers, punctuation
+ * merges) — they inherit the previous word's time. Returns null when the
+ * output shape is unrecognized.
+ */
+export function whisperxToLrc(output: unknown): string | null {
+  const segments = (output as { segments?: unknown } | null)?.segments;
+  if (!Array.isArray(segments)) return null;
+  const lines: string[] = [];
+  for (const raw of segments as WhisperSegment[]) {
+    const words = Array.isArray(raw.words) ? raw.words : [];
+    const firstTimed = words.find((w) => Number.isFinite(w.start));
+    const start = Number.isFinite(raw.start) ? raw.start! : firstTimed?.start;
+    if (start === undefined) continue;
+    let body: string;
+    if (words.length > 0) {
+      let last = start;
+      const parts: string[] = [];
+      for (const w of words) {
+        const text = (w.word ?? w.text ?? "").trim();
+        if (!text) continue;
+        const t = Number.isFinite(w.start) ? w.start! : last;
+        last = t;
+        parts.push(`<${lrcTime(t)}>${text}`);
+      }
+      body = parts.join(" ");
+    } else {
+      body = (raw.text ?? "").trim();
+    }
+    if (body) lines.push(`[${lrcTime(start)}]${body}`);
+  }
+  return lines.length > 0 ? lines.join("\n") : null;
 }

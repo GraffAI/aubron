@@ -17,6 +17,7 @@ interface Diagnostics {
     stems: string[];
   };
   ingest: IngestReport | null;
+  alignmentAvailable?: boolean;
 }
 
 const STATUS_LABEL: Record<LyricsStatus, string> = {
@@ -72,9 +73,38 @@ export function SongInfo({ song }: { song: Song }) {
       .catch((err: unknown) => setDiagError(err instanceof Error ? err.message : "failed to load"));
   }, [open, stored, song.id]);
 
-  const [managing, setManaging] = useState<"idle" | "reprocessing" | "deleting" | "done">("idle");
+  const [managing, setManaging] = useState<
+    "idle" | "reprocessing" | "aligning" | "deleting" | "done"
+  >("idle");
   const [manageMsg, setManageMsg] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  /** WhisperX word timing over the stored vocal stem — even on an LRCLIB hit. */
+  const retime = async () => {
+    setManaging("aligning");
+    setManageMsg("");
+    try {
+      const res = await fetch(`/api/songs/${song.id}/align`, { method: "POST" });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `word timing failed (${res.status})`);
+      }
+      let state = (await res.json()) as { jobId: string; status: string; error?: string };
+      while (state.status === "aligning") {
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        const poll = await fetch(`/api/ingest/${state.jobId}`);
+        if (!poll.ok) throw new Error("lost track of the word-timing job");
+        state = (await poll.json()) as typeof state;
+      }
+      if (state.status !== "done") throw new Error(state.error ?? "word timing failed");
+      setManaging("done");
+      setManageMsg("✓ Word-timed — reload the song to sing with the new sweep.");
+      router.refresh();
+    } catch (err) {
+      setManaging("idle");
+      setManageMsg(err instanceof Error ? err.message : "word timing failed");
+    }
+  };
 
   /** Re-run separation + lyric lookup in place, then reload the song. */
   const reprocess = async () => {
@@ -273,6 +303,17 @@ export function SongInfo({ song }: { song: Song }) {
                   <p className="text-xs text-white/40">Loading…</p>
                 )}
                 <div className="flex flex-wrap gap-2 pt-1">
+                  {diag?.alignmentAvailable ? (
+                    <button
+                      onClick={() => void retime()}
+                      disabled={managing !== "idle"}
+                      className="flex-1 rounded-lg border border-neon/40 px-3 py-2 text-sm text-neon transition hover:bg-neon/10 disabled:opacity-40"
+                    >
+                      {managing === "aligning"
+                        ? "Word-timing…"
+                        : "Re-time words with AI (WhisperX)"}
+                    </button>
+                  ) : null}
                   <button
                     onClick={() => void reprocess()}
                     disabled={managing !== "idle"}

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { ingestReportKey, launchJob } from "../../../../lib/ingest";
-import { findLyrics } from "../../../../lib/pipeline";
+import { findLyrics, isAlignmentConfigured } from "../../../../lib/pipeline";
 import { deleteObject, getJson, isStorageConfigured } from "../../../../lib/storage";
 import type { IngestJob, IngestReport, StoredLibraryEntry } from "../../../../lib/types";
 
@@ -54,6 +54,8 @@ export async function POST(
     lrc: lyrics.synced ?? entry.lrc, // a lookup miss shouldn't erase working lyrics
     lyrics,
     predictionUrl: null,
+    // Same fallback rule as first ingest: no synced lyrics → word-time.
+    align: isAlignmentConfigured() && lyrics.synced === null && !entry.lrc,
     targetSongId: songId,
     status: "separating",
   };
