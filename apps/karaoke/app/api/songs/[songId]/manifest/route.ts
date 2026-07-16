@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+import { storedStemUrls } from "../../../../lib/catalog";
 import { getJson, isStorageConfigured } from "../../../../lib/storage";
 import type { StoredLibraryEntry } from "../../../../lib/types";
 
@@ -31,13 +32,6 @@ export async function GET(
     lrcSource: entry.lrcSource ?? (entry.lrc ? "provider" : undefined),
     hasProvider: Boolean(entry.providerLrc),
     hasAi: Boolean(entry.aiLrc),
-    urls: {
-      ...(entry.stems.vocals ? { vocals: `/api/stems/${entry.id}/vocals` } : {}),
-      ...(entry.stems.full ? { full: `/api/stems/${entry.id}/full` } : {}),
-      ...(entry.stems.extras?.length
-        ? { extras: entry.stems.extras.map((_, i) => `/api/stems/${entry.id}/backing${i + 2}`) }
-        : {}),
-      instrumental: `/api/stems/${entry.id}/instrumental`,
-    },
+    urls: storedStemUrls(entry),
   });
 }

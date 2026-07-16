@@ -100,11 +100,24 @@ player, so timing can be judged before leaving the page.
 
 **Every ingest is diagnosable.** A per-song `ingest.json` report records the
 lyric lookup (query, provider endpoints hit, outcome or error), the separation
-note, and the alignment outcome. The player's ⓘ panel renders it —
-phone-friendly — and can **re-run the lyric search with corrected
-artist/title** (`POST /api/songs/<id>/lyrics`), since metadata mismatch is the
-usual cause of a miss. Library rows badge each song: `word-timed` / `timed` /
-`untimed` / `no lyrics`.
+note + exact provider input/output, the alignment outcome, and the **git SHA
+of the code that ran the ingest** (from `VERCEL_GIT_COMMIT_SHA`, injected by
+Vercel). The player's ⓘ panel renders it — phone-friendly — alongside a
+**live storage inventory** (every stem object HEADed with its byte size, plus
+a solo button that streams the stem alone, so "are the drums actually in the
+bucket" is answerable by ear), what the player's audio graph actually loaded,
+and warnings when they disagree: processed-by ≠ serving commit, provider
+returned 4 stems but fewer backing parts stored (pre-4-stem code), player
+loaded fewer parts than storage holds. It can also **re-run the lyric search
+with corrected artist/title** (`POST /api/songs/<id>/lyrics`), since metadata
+mismatch is the usual cause of a miss. Library rows badge each song:
+`word-timed` / `timed` / `untimed` / `no lyrics`.
+
+**Stem URLs are cache-busted.** The stems proxy serves with an hour of
+browser cache, and a reprocess replaces the audio behind the same paths — so
+every stem URL carries a `?v=` derived from the entry's (re)process time.
+Without it, a freshly reprocessed song keeps playing the previous run's
+cached stems for up to an hour.
 
 ## Storage (the private library)
 

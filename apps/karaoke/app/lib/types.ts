@@ -120,6 +120,10 @@ export interface IngestReport {
   jobId: string;
   originalKey: string;
   addedAt: string;
+  /** Short git SHA of the code that finalized this ingest (Vercel injects it).
+   *  Compare with the serving deploy's SHA: a mismatch means "this song was
+   *  processed by older pipeline code — reprocess to pick up fixes." */
+  commit?: string;
   lyrics: LyricsReport | null;
   separation: {
     used: boolean;
