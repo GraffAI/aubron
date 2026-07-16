@@ -64,13 +64,24 @@ fader is a linear **full ↔ instrumental crossfade**: at max you hear the
 original bit-exact, at zero pure instrumental. The vocal stem is still kept —
 it's the input for forced alignment and a future practice mode.
 
-**Word timing (WhisperX).** With `REPLICATE_WHISPERX_VERSION` pinned, the
-pipeline can word-time lyrics by transcribing + aligning the **isolated vocal
-stem** (far more accurate than the full mix). It runs automatically when
-LRCLIB has no synced lyrics, on demand at ingest ("AI word timing" checkbox —
-even on an LRCLIB hit), or retroactively from the ⓘ panel
-(`POST /api/songs/<id>/align`). Alignment runs _after_ the song is live and
-can only upgrade it — a failure keeps whatever lyrics existed. The job flow is
+**Word timing.** Two providers, both listening to the **isolated vocal stem**
+(far more accurate than the full mix), auto-selected in this order:
+
+1. **ElevenLabs** (`ELEVENLABS_API_KEY`) — preferred. True forced alignment:
+   the chosen lyric text goes to the model with the audio, and every word of
+   that text comes back timestamped — the model never gets to disagree about
+   the words. The no-sheet path uses Scribe transcription (word-level
+   timestamps, heuristic line breaks). Synchronous API, cents per song.
+2. **WhisperX on Replicate** (`REPLICATE_WHISPERX_VERSION`) — fallback. It
+   transcribes (audio-only), and the pipeline transplants its timestamps onto
+   the chosen text via sequence alignment (`lib/retime.ts`), rejecting when
+   under 35% of words anchor.
+
+Word timing runs automatically when no synced lyrics were chosen, on demand at
+ingest ("Retime this sheet" checkbox — even on an LRCLIB hit), or
+retroactively from the ⓘ panel (`POST /api/songs/<id>/align`). It runs _after_
+the song is live and can only upgrade it — a failure keeps whatever lyrics
+existed, and provider ↔ AI timing stays switchable per song. The job flow is
 `separating → aligning → done`, polled on the same `GET /api/ingest/<jobId>`.
 
 **Ingest shows its work.** The add-song flow renders staged progress — upload
@@ -137,7 +148,8 @@ starter collection without any bucket at all.
 | `STORAGE_FORCE_PATH_STYLE`   | Set for R2/MinIO.                                                                                                                                |
 | `REPLICATE_API_TOKEN`        | Enables the separation step of `/api/ingest`.                                                                                                    |
 | `REPLICATE_DEMUCS_VERSION`   | Pinned demucs version: the bare hash after the colon in `owner/model:hash`. The input dialect matches `ryan5453/demucs` (`two_stems: "vocals"`). |
-| `REPLICATE_WHISPERX_VERSION` | Pinned WhisperX version (bare hash) for word timing. Input dialect matches `victor-upmeet/whisperx` (`audio_file`, `align_output: true`).        |
+| `ELEVENLABS_API_KEY`         | Preferred word-timing provider: true forced alignment + Scribe transcription.                                                                    |
+| `REPLICATE_WHISPERX_VERSION` | Fallback word-timing: pinned WhisperX version (bare hash). Input dialect matches `victor-upmeet/whisperx` (`audio_file`, `align_output: true`).  |
 
 ## Develop
 

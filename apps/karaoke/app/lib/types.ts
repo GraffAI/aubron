@@ -135,7 +135,11 @@ export interface IngestJob {
   /** Plain lyric text to retime (timing transplant). Without it, Whisper's
    *  own transcription becomes the lyrics — last resort, not default. */
   seedPlain?: string | null;
-  /** WhisperX prediction URL to poll during the "aligning" phase. */
+  /** Which service does the word timing for this job. */
+  alignProvider?: "replicate" | "elevenlabs";
+  /** Bucket key of the audio the aligner listens to (the vocal stem). */
+  alignAudioKey?: string;
+  /** WhisperX prediction URL to poll (replicate provider only). */
   alignPredictionUrl?: string | null;
   /** Stem keys stored at finalize (needed to hand vocals to alignment). */
   storedStems?: { vocals?: string; instrumental: string; full?: string };

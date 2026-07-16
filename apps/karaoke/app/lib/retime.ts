@@ -81,6 +81,34 @@ const lrcTime = (seconds: number) => {
 };
 
 /**
+ * Timed words → enhanced LRC with heuristic line breaks (a singing pause of
+ * >1.4s or 8 words, whichever first). For the no-sheet path, where a
+ * transcriber returns a flat word stream with no line structure.
+ */
+export function wordsToLrc(words: TimedToken[]): string | null {
+  const clean = words.filter((w) => w.word.trim().length > 0 && Number.isFinite(w.start));
+  if (clean.length === 0) return null;
+  const lines: TimedToken[][] = [];
+  let current: TimedToken[] = [];
+  let last = clean[0]!.start;
+  for (const w of clean) {
+    if (current.length >= 8 || (current.length > 0 && w.start - last > 1.4)) {
+      lines.push(current);
+      current = [];
+    }
+    current.push(w);
+    last = w.start;
+  }
+  if (current.length > 0) lines.push(current);
+  return lines
+    .map(
+      (lw) =>
+        `[${lrcTime(lw[0]!.start)}]` + lw.map((w) => `<${lrcTime(w.start)}>${w.word}`).join(" "),
+    )
+    .join("\n");
+}
+
+/**
  * Retime `lyricsText` (plain or LRC) using Whisper's heard words. Returns
  * enhanced LRC, or null when too few words anchor (< 35%) — a sign Whisper
  * heard a different song than the sheet claims, where transplanted timing

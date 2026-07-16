@@ -2,18 +2,19 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { writeJob } from "../../../../lib/ingest";
-import { isAlignmentConfigured, startAlignment } from "../../../../lib/pipeline";
+import { alignmentProvider, startAlignment } from "../../../../lib/pipeline";
 import { lyricsToPlainLines } from "../../../../lib/retime";
 import { getJson, isStorageConfigured, presignGet } from "../../../../lib/storage";
 import type { IngestJob, StoredLibraryEntry } from "../../../../lib/types";
 
 /**
- * Word-time an existing song with WhisperX — the "I got an LRCLIB hit but I
- * want word-level timing" (or "line timing looks off") button. Runs over the
- * stored vocal stem and, crucially, SEEDS with the song's existing lyric
- * text: Whisper contributes timestamps only (timing transplant), it does not
- * replace the words. Poll the returned job on GET /api/ingest/<jobId>; on
- * failure the song keeps what it had.
+ * Word-time an existing song — the "I got an LRCLIB hit but I want
+ * word-level timing" (or "line timing looks off") button. Runs over the
+ * stored vocal stem and SEEDS with the song's existing lyric text, so the
+ * provider contributes timestamps, never different words. With ElevenLabs
+ * configured this is true forced alignment; with WhisperX it's the
+ * transcription transplant. Poll the returned job on GET /api/ingest/<jobId>;
+ * on failure the song keeps what it had.
  */
 export async function POST(
   _request: NextRequest,
@@ -22,9 +23,12 @@ export async function POST(
   if (!isStorageConfigured()) {
     return NextResponse.json({ error: "library storage not configured" }, { status: 503 });
   }
-  if (!isAlignmentConfigured()) {
+  const provider = alignmentProvider();
+  if (!provider) {
     return NextResponse.json(
-      { error: "word timing not configured (set REPLICATE_WHISPERX_VERSION)" },
+      {
+        error: "word timing not configured (set ELEVENLABS_API_KEY or REPLICATE_WHISPERX_VERSION)",
+      },
       { status: 503 },
     );
   }
@@ -39,10 +43,6 @@ export async function POST(
     );
   }
 
-  const start = await startAlignment(await presignGet(entry.stems.vocals));
-  if (!start.started) {
-    return NextResponse.json({ error: start.reason }, { status: 502 });
-  }
   const seedText = entry.providerLrc ?? entry.lrc;
   const job: IngestJob = {
     id: crypto.randomUUID(),
@@ -54,11 +54,21 @@ export async function POST(
     predictionUrl: null,
     align: true,
     seedPlain: seedText ? lyricsToPlainLines(seedText).join("\n") : null,
-    alignPredictionUrl: start.job.predictionUrl,
+    alignProvider: provider,
+    alignAudioKey: entry.stems.vocals,
     songId,
     targetSongId: songId,
     status: "aligning",
   };
+
+  if (provider === "replicate") {
+    const start = await startAlignment(await presignGet(entry.stems.vocals));
+    if (!start.started) {
+      return NextResponse.json({ error: start.reason }, { status: 502 });
+    }
+    job.alignPredictionUrl = start.job.predictionUrl;
+  }
+  // ElevenLabs is synchronous: the first poll performs the call.
   await writeJob(job);
   return NextResponse.json({ jobId: job.id, status: job.status, songId });
 }
