@@ -129,7 +129,9 @@ export async function finalizeJob(
     duration: job.duration,
     stems,
     lrc: job.lrc,
-    lyricsStatus: job.lyrics?.status ?? (job.lrc ? "synced" : "not-found"),
+    // Stored LRC wins the badge: a reprocess whose lookup missed still keeps
+    // (and should report) the working lyrics it carried over.
+    lyricsStatus: job.lrc ? "synced" : (job.lyrics?.status ?? "not-found"),
     addedAt: new Date().toISOString(),
   };
   const index = (await getJson<StoredLibraryEntry[]>("library/index.json")) ?? [];
