@@ -9,8 +9,19 @@ section for the deploy model.
 
 ## What it does
 
-- **Library** — the song collection: a built-in demo song plus whatever the
-  deployed library manifest lists (see "Library format").
+- **Catalogue** — the song collection as a browsable surface: search (case-
+  and diacritic-folded), sort by latest / title / artist, a generated gradient
+  "cover" per song, and lyric badges. The built-in demo song plus whatever the
+  library holds (see "Library format").
+- **Party queue** — queue songs from the catalogue (the same song can queue
+  twice), tag each entry with who's singing, reorder or remove entries. The
+  queue lives in `localStorage` on the device driving the screen — a karaoke
+  queue belongs to the room, not an account. **It never autoplays**: when a
+  song ends naturally, the player pops the head entry, navigates to it, and
+  parks loaded at 0:00 behind an "Up next — grab the mic, ⟨singer⟩!" banner;
+  pressing ▶ stays a human decision. `app/lib/queue.ts` holds the store +
+  pure list ops (unit-tested); the hand-off between pages rides
+  `sessionStorage`.
 - **Player** — a single Web Audio graph mixes the separated **vocal** and
   **instrumental** stems against any number of **live microphones**. Faders for
   guide vocals / instrumental / master, per-mic level + feedback-delay echo,

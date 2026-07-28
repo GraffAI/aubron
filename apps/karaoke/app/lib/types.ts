@@ -58,6 +58,8 @@ export interface Song {
   wordTimed: boolean;
   /** Lyric-pipeline outcome for library badges (stored songs only). */
   lyricsStatus?: LyricsStatus;
+  /** When the song landed in the library (stored songs) — powers newest-first. */
+  addedAt?: string;
 }
 
 /** Entry in a deployed library manifest (`public/library/index.json`). */

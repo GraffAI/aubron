@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { renderDaisyStems } from "./lib/daisy";
 import { KaraokeEngine, type LoadedInfo, type MicChannel } from "./lib/engine";
 import { getLocalSong } from "./lib/local-session";
 import { formatClock } from "./lib/lrc";
+import { popNext, stashUpNext, takeUpNext, useQueue } from "./lib/queue";
 import type { Song } from "./lib/types";
 import { LyricsView } from "./lyrics-view";
 import { RetroScreen } from "./retro-screen";
@@ -15,6 +17,10 @@ import { SongInfo } from "./song-info";
 type Status = "loading" | "ready" | "error";
 
 export function Player({ song: serverSong, songId }: { song: Song | null; songId: string }) {
+  const router = useRouter();
+  const queue = useQueue();
+  /** "Loaded by the queue" hand-off: banner until the singer presses play. */
+  const [upNext, setUpNext] = useState<{ title: string; singer: string } | null>(null);
   const [song, setSong] = useState<Song | null>(serverSong);
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState("");
@@ -59,6 +65,14 @@ export function Player({ song: serverSong, songId }: { song: Song | null; songId
       setDuration(engine.duration);
       setLoadedInfo(engine.loadedInfo);
       setStatus("ready");
+      // The party queue: a natural end LOADS the next entry (navigate, decode,
+      // park at 0:00) but never plays it — the singer presses ▶ when ready.
+      engine.onended = () => {
+        const next = popNext();
+        if (!next) return;
+        stashUpNext(next);
+        router.push(`/sing/${next.songId}`);
+      };
     })().catch((err: unknown) => {
       if (!cancelled) {
         setError(err instanceof Error ? err.message : "Failed to load audio.");
@@ -70,7 +84,16 @@ export function Player({ song: serverSong, songId }: { song: Song | null; songId
       engine.dispose();
       engineRef.current = null;
     };
-  }, [serverSong, songId]);
+  }, [serverSong, songId, router]);
+
+  // Show whose turn it is when this page was loaded by the queue; the banner
+  // dismisses itself the moment the song actually starts.
+  useEffect(() => {
+    setUpNext(takeUpNext());
+  }, [songId]);
+  useEffect(() => {
+    if (playing) setUpNext(null);
+  }, [playing]);
 
   // The clock: poll engine time + mic meters every frame.
   useEffect(() => {
@@ -175,7 +198,26 @@ export function Player({ song: serverSong, songId }: { song: Song | null; songId
         </button>
       </header>
 
-      <section className="min-h-0 flex-1 overflow-hidden">
+      <section className="relative min-h-0 flex-1 overflow-hidden">
+        {upNext && !playing ? (
+          <div className="pointer-events-none absolute inset-x-0 top-6 z-10 flex justify-center px-4">
+            <div
+              data-up-next-banner
+              className="rounded-2xl border border-neon/40 bg-black/85 px-6 py-3 text-center shadow-lg shadow-neon/10 backdrop-blur"
+            >
+              <p className="text-[11px] uppercase tracking-widest text-neon">Up next</p>
+              <p dir="auto" className="font-medium">
+                {upNext.title}
+              </p>
+              {upNext.singer ? (
+                <p dir="auto" className="text-sm text-white/60">
+                  grab the mic, {upNext.singer}!
+                </p>
+              ) : null}
+              <p className="mt-1 text-xs text-white/40">Loaded and ready — press ▶ to start</p>
+            </div>
+          </div>
+        ) : null}
         {status === "loading" ? (
           <div className="flex h-full items-center justify-center text-white/40">
             Warming up the band…
@@ -283,6 +325,22 @@ export function Player({ song: serverSong, songId }: { song: Song | null; songId
           </div>
         </section>
       )}
+
+      {queue.length > 0 ? (
+        <div className="border-t border-white/10 px-6 py-1.5 text-center text-[11px] text-white/40">
+          Up next:{" "}
+          <span dir="auto" className="text-white/70">
+            {queue[0]!.title}
+          </span>
+          {queue[0]!.singer ? (
+            <span dir="auto" className="text-neon/80">
+              {" "}
+              · {queue[0]!.singer}
+            </span>
+          ) : null}
+          {queue.length > 1 ? ` · ${queue.length - 1} more in queue` : ""}
+        </div>
+      ) : null}
 
       <footer className="flex items-center gap-4 border-t border-white/10 px-6 py-4">
         <button
