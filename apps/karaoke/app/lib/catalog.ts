@@ -106,6 +106,7 @@ async function loadStoredLibrary(): Promise<Song[]> {
       wordTimed: lyrics.some((l) => l.words !== undefined),
       lyricsStatus:
         entry.lyricsStatus ?? (entry.lrc ? ("synced" as const) : ("not-found" as const)),
+      addedAt: entry.addedAt,
     };
   });
 }
