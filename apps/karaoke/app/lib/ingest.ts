@@ -1,3 +1,4 @@
+import { findArtwork, type ArtworkResult } from "./artwork";
 import { buildSeparationInput, isSeparationConfigured, startSeparation } from "./pipeline";
 import { getJson, getObjectBytes, presignGet, putJson, putObject } from "./storage";
 import type { IngestJob, IngestReport, StoredLibraryEntry } from "./types";
@@ -60,6 +61,17 @@ async function storeStem(songId: string, stem: string, url: string): Promise<str
 }
 
 export const ingestReportKey = (songId: string) => `library/${songId}/ingest.json`;
+
+/** Extension-less on purpose: providers return jpg or png and the proxy
+ *  serves whatever Content-Type was stored — one stable key either way. */
+export const artKey = (songId: string) => `library/${songId}/cover`;
+
+/** Store a found cover; shared by ingest and the ⓘ-panel backfill. */
+export async function storeArtwork(songId: string, art: ArtworkResult): Promise<string> {
+  const key = artKey(songId);
+  await putObject(key, art.bytes, art.contentType);
+  return key;
+}
 
 /** Short SHA of the running code (Vercel injects VERCEL_GIT_COMMIT_SHA when
  *  system env vars are exposed — the default). Stamped into every ingest
@@ -139,12 +151,32 @@ export async function finalizeJob(
     stems.vocals = await storeStem(songId, "vocals", stemUrls.vocals);
   }
 
+  const index = (await getJson<StoredLibraryEntry[]>("library/index.json")) ?? [];
+
+  // Cover art: fetched once per song, ever. A reprocess keeps the art it
+  // already has (the audio changed, the record sleeve didn't), and a miss or
+  // provider outage never fails the ingest — the catalogue falls back to its
+  // generated gradient.
+  const prior = index.find((e) => e.id === songId);
+  let art: string | undefined = prior?.art;
+  let artworkReport: IngestReport["artwork"] = art
+    ? { used: true, source: "kept from previous run", attempts: [] }
+    : null;
+  if (!art) {
+    const found = await findArtwork(job.artist, job.title).catch(() => null);
+    if (found) {
+      artworkReport = found.report;
+      if (found.art) art = await storeArtwork(songId, found.art).catch(() => undefined);
+    }
+  }
+
   const entry: StoredLibraryEntry = {
     id: songId,
     title: job.title,
     artist: job.artist,
     duration: job.duration,
     stems,
+    ...(art ? { art } : {}),
     lrc: job.lrc,
     providerLrc: job.lrc,
     ...(job.lrc ? { lrcSource: "provider" as const } : {}),
@@ -153,7 +185,6 @@ export async function finalizeJob(
     lyricsStatus: job.lrc ? "synced" : (job.lyrics?.status ?? "not-found"),
     addedAt: new Date().toISOString(),
   };
-  const index = (await getJson<StoredLibraryEntry[]>("library/index.json")) ?? [];
   await putJson("library/index.json", [...index.filter((e) => e.id !== songId), entry]);
 
   const report: IngestReport = {
@@ -172,6 +203,7 @@ export async function finalizeJob(
       ...(job.separationInput ? { input: job.separationInput } : {}),
       ...(job.separationOutputKeys ? { outputStems: job.separationOutputKeys } : {}),
     },
+    artwork: artworkReport,
     stems,
   };
   await putJson(ingestReportKey(songId), report);

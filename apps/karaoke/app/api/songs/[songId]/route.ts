@@ -25,7 +25,11 @@ export async function DELETE(
 
   const report = await getJson<IngestReport>(ingestReportKey(songId)).catch(() => null);
   const keys = [
-    ...Object.values(entry.stems).filter((k): k is string => typeof k === "string"),
+    // .flat() reaches into stems.extras (a string[] a typeof filter would drop).
+    ...Object.values(entry.stems)
+      .flat()
+      .filter((k): k is string => typeof k === "string"),
+    ...(entry.art ? [entry.art] : []),
     ingestReportKey(songId),
     ...(report?.originalKey ? [report.originalKey] : []),
     ...(report?.jobId && report.jobId !== "unknown" ? [`jobs/${report.jobId}.json`] : []),

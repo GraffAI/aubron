@@ -183,6 +183,17 @@ starter collection without any bucket at all.
 | `REPLICATE_SEPARATION_INPUT` | JSON merged into the separation input. **Recommended:** `{"model_name":"htdemucs_ft","shifts":2}` — the default `htdemucs` is the fast baseline and bleeds vocal-adjacent instruments (synth leads, guitars, sax) into the vocal stem; the fine-tuned model + shifts separates noticeably cleaner at ~4× GPU time (still well under a dollar per song). `"$AUDIO_URL"` substitutes the presigned URL and `null` deletes a default key, so a different deployment's dialect (e.g. a BS/Mel-RoFormer port — current separation SOTA) can be pinned via `REPLICATE_DEMUCS_VERSION` without code changes. |
 | `ELEVENLABS_API_KEY`         | Preferred word-timing provider: true forced alignment + Scribe transcription.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `REPLICATE_WHISPERX_VERSION` | Fallback word-timing: pinned WhisperX version (bare hash). Input dialect matches `victor-upmeet/whisperx` (`audio_file`, `align_output: true`).                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `ITUNES_COUNTRIES`           | Optional, default `us,jp`: iTunes storefronts tried in order for cover art. Regional storefronts catch releases the US store doesn't list.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+
+**Cover art needs no keys at all.** Ingest looks up each song once on the
+iTunes Search API (label catalogues, art upsized to 1200×1200) and falls back
+to MusicBrainz → Cover Art Archive (community archive: bootlegs, self-released
+and regional pressings; its art is explicitly free to cache). The winner is
+cached into the bucket at `library/<songId>/cover` and served through the
+authed `/api/art/<songId>` proxy — providers are hit once per song, ever. A
+miss falls back to the catalogue's generated gradient, and the ⓘ panel has a
+"Fetch artwork" button to backfill or refresh (it uses the entry's current
+artist/title, so fix metadata first, then refetch).
 
 ## Develop
 

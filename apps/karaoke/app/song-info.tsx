@@ -27,6 +27,8 @@ interface Diagnostics {
   };
   /** Live HEAD of every stored stem object — sizes prove what separation stored. */
   storage?: StemRow[];
+  /** Cached cover image, when the lookup found one. */
+  art?: { key: string; url: string; bytes: number | null } | null;
   /** Short SHA of the deploy answering the request (null off Vercel). */
   deployedCommit?: string | null;
   ingest: IngestReport | null;
@@ -158,6 +160,34 @@ export function SongInfo({ song, loaded }: { song: Song; loaded?: LoadedInfo | n
       })
       .catch((err: unknown) => setDiagError(err instanceof Error ? err.message : "failed to load"));
   }, [open, stored, song.id]);
+
+  const [fetchingArt, setFetchingArt] = useState(false);
+  const [artMsg, setArtMsg] = useState("");
+
+  /** Backfill/refresh cover art with the entry's current artist/title. */
+  const fetchArt = async () => {
+    setFetchingArt(true);
+    setArtMsg("");
+    try {
+      const res = await fetch(`/api/songs/${song.id}/art`, { method: "POST" });
+      if (!res.ok) throw new Error(`artwork lookup failed (${res.status})`);
+      const result = (await res.json()) as {
+        found: boolean;
+        source: string | null;
+        attempts: string[];
+      };
+      setArtMsg(
+        result.found
+          ? `✓ Cover found via ${result.source} — reload to see it everywhere.`
+          : `No cover found: ${result.attempts.join(" · ")}`,
+      );
+      if (result.found) router.refresh();
+    } catch (err) {
+      setArtMsg(err instanceof Error ? err.message : "artwork lookup failed");
+    } finally {
+      setFetchingArt(false);
+    }
+  };
 
   const [managing, setManaging] = useState<
     "idle" | "reprocessing" | "aligning" | "deleting" | "done"
@@ -363,6 +393,55 @@ export function SongInfo({ song, loaded }: { song: Song; loaded?: LoadedInfo | n
                 </div>
               ) : null}
             </section>
+
+            {stored ? (
+              <section className="space-y-2" data-artwork-section>
+                <h3 className="text-xs font-medium uppercase tracking-widest text-white/40">
+                  Artwork
+                </h3>
+                <div className="flex items-center gap-3">
+                  {diag?.art ? (
+                    <img
+                      src={diag.art.url}
+                      alt={`Cover for ${song.title}`}
+                      className="h-16 w-16 rounded-lg object-cover"
+                    />
+                  ) : (
+                    <span className="grid h-16 w-16 place-items-center rounded-lg bg-white/5 text-white/30">
+                      ♪
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1 space-y-1 text-xs text-white/50">
+                    <p>
+                      {diag?.ingest?.artwork?.used
+                        ? `Found via ${diag.ingest.artwork.source}`
+                        : diag?.art
+                          ? "Cover on file"
+                          : "No cover found — the tile uses a generated gradient"}
+                    </p>
+                    {diag?.ingest?.artwork?.attempts.map((a, i) => (
+                      <p key={i} className="truncate font-mono text-[11px] text-white/40">
+                        {a}
+                      </p>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => void fetchArt()}
+                    disabled={fetchingArt}
+                    className="shrink-0 rounded-lg border border-white/15 px-3 py-2 text-sm text-white/80 transition hover:border-neon/60 disabled:opacity-40"
+                  >
+                    {fetchingArt ? "Searching…" : diag?.art ? "Refresh art" : "Fetch artwork"}
+                  </button>
+                </div>
+                {artMsg ? (
+                  <p
+                    className={`text-xs ${artMsg.startsWith("✓") ? "text-neon" : "text-amber-300"}`}
+                  >
+                    {artMsg}
+                  </p>
+                ) : null}
+              </section>
+            ) : null}
 
             {stored ? (
               <section className="space-y-2">

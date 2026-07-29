@@ -82,6 +82,12 @@ export function storedStemUrls(entry: StoredLibraryEntry): {
   };
 }
 
+/** Cover-art proxy URL with the same ?v cache-buster as the stem URLs. */
+export function storedArtUrl(entry: StoredLibraryEntry): string | undefined {
+  if (!entry.art) return undefined;
+  return `/api/art/${entry.id}?v=${(Date.parse(entry.addedAt) || 0).toString(36)}`;
+}
+
 /** Songs ingested into the private bucket; stems play via the authed proxy. */
 async function loadStoredLibrary(): Promise<Song[]> {
   if (!isStorageConfigured()) return [];
@@ -107,6 +113,7 @@ async function loadStoredLibrary(): Promise<Song[]> {
       lyricsStatus:
         entry.lyricsStatus ?? (entry.lrc ? ("synced" as const) : ("not-found" as const)),
       addedAt: entry.addedAt,
+      artUrl: storedArtUrl(entry),
     };
   });
 }

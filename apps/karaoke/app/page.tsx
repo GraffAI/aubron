@@ -32,6 +32,7 @@ export default async function Library() {
           hasLyrics: s.lyrics.length > 0,
           lyricsStatus: s.lyricsStatus,
           addedAt: s.addedAt,
+          artUrl: s.artUrl,
         }))}
       />
 

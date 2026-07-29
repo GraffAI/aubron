@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-import { storedStemUrls } from "../../../../lib/catalog";
+import { storedArtUrl, storedStemUrls } from "../../../../lib/catalog";
 import { ingestReportKey, pipelineCommit } from "../../../../lib/ingest";
 import { isAlignmentConfigured } from "../../../../lib/pipeline";
 import { getJson, headObject, isStorageConfigured } from "../../../../lib/storage";
@@ -47,7 +47,16 @@ export async function GET(
     }),
   );
 
+  const art = entry.art
+    ? {
+        key: entry.art,
+        url: storedArtUrl(entry)!,
+        bytes: (await headObject(entry.art).catch(() => null))?.bytes ?? null,
+      }
+    : null;
+
   return NextResponse.json({
+    art,
     song: {
       id: entry.id,
       title: entry.title,

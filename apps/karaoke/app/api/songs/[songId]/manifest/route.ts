@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-import { storedStemUrls } from "../../../../lib/catalog";
+import { storedArtUrl, storedStemUrls } from "../../../../lib/catalog";
 import { getJson, isStorageConfigured } from "../../../../lib/storage";
 import type { StoredLibraryEntry } from "../../../../lib/types";
 
@@ -33,5 +33,6 @@ export async function GET(
     hasProvider: Boolean(entry.providerLrc),
     hasAi: Boolean(entry.aiLrc),
     urls: storedStemUrls(entry),
+    ...(storedArtUrl(entry) ? { artUrl: storedArtUrl(entry) } : {}),
   });
 }
