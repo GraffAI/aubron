@@ -27,6 +27,7 @@ export interface CatalogueSong {
   hasLyrics: boolean;
   lyricsStatus?: LyricsStatus;
   addedAt?: string;
+  artUrl?: string;
 }
 
 type Sort = "latest" | "title" | "artist";
@@ -46,6 +47,37 @@ function coverGradient(id: string): string {
   const h1 = ((hash % 360) + 360) % 360;
   const h2 = (h1 + 75) % 360;
   return `linear-gradient(135deg, hsl(${h1} 70% 45%), hsl(${h2} 85% 30%))`;
+}
+
+/** Real cover when the pipeline found one; the gradient sits underneath so a
+ *  failed image load degrades invisibly instead of showing a broken glyph. */
+export function Cover({
+  id,
+  artUrl,
+  className,
+}: {
+  id: string;
+  artUrl?: string;
+  className: string;
+}) {
+  return (
+    <span
+      className={`relative grid shrink-0 place-items-center overflow-hidden text-white/80 ${className}`}
+      style={{ background: coverGradient(id) }}
+    >
+      ♪
+      {artUrl ? (
+        // Plain <img>: an authed same-origin blob, already display-sized —
+        // next/image optimization has nothing to add.
+        <img
+          src={artUrl}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover"
+          onError={(e) => e.currentTarget.remove()}
+        />
+      ) : null}
+    </span>
+  );
 }
 
 function Badge({ song }: { song: CatalogueSong }) {
@@ -238,12 +270,7 @@ export function Catalogue({ songs }: { songs: CatalogueSong[] }) {
                 className="flex items-center gap-4 px-4 py-3 transition hover:bg-white/5"
               >
                 <Link href={`/sing/${song.id}`} className="flex min-w-0 flex-1 items-center gap-4">
-                  <span
-                    className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-white/80"
-                    style={{ background: coverGradient(song.id) }}
-                  >
-                    ♪
-                  </span>
+                  <Cover id={song.id} artUrl={song.artUrl} className="h-10 w-10 rounded-lg" />
                   <span className="min-w-0 flex-1">
                     <span dir="auto" className="block truncate font-medium">
                       {song.title}

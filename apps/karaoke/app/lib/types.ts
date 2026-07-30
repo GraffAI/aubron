@@ -60,6 +60,8 @@ export interface Song {
   lyricsStatus?: LyricsStatus;
   /** When the song landed in the library (stored songs) — powers newest-first. */
   addedAt?: string;
+  /** Authed proxy URL of the cached cover image, when one was found. */
+  artUrl?: string;
 }
 
 /** Entry in a deployed library manifest (`public/library/index.json`). */
@@ -99,6 +101,8 @@ export interface StoredLibraryEntry {
   lrcSource?: "provider" | "ai";
   /** Outcome of the lyric lookup, for at-a-glance library badges. */
   lyricsStatus?: LyricsStatus;
+  /** Bucket key of the cached cover image (iTunes / Cover Art Archive). */
+  art?: string;
   addedAt: string;
 }
 
@@ -138,6 +142,8 @@ export interface IngestReport {
   };
   /** Word-timing (forced alignment) outcome, when it ran. */
   alignment?: { used: boolean; note: string } | null;
+  /** Cover-art lookup outcome (iTunes → Cover Art Archive), when it ran. */
+  artwork?: { used: boolean; source: string | null; attempts: string[] } | null;
   stems: { vocals?: string; instrumental: string; extras?: string[]; full?: string };
 }
 

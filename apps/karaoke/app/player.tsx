@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Cover } from "./catalogue";
 import { renderDaisyStems } from "./lib/daisy";
 import { KaraokeEngine, type LoadedInfo, type MicChannel } from "./lib/engine";
 import { getLocalSong } from "./lib/local-session";
@@ -177,13 +178,16 @@ export function Player({ song: serverSong, songId }: { song: Song | null; songId
         <Link href="/" className="text-white/50 transition hover:text-white">
           ← Library
         </Link>
-        <div className="min-w-0 flex-1 text-center">
-          <span dir="auto" className="block truncate font-medium">
-            {song?.title ?? "…"}
-          </span>
-          <span dir="auto" className="block truncate text-xs text-white/40">
-            {song?.artist}
-          </span>
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-3">
+          {song ? <Cover id={song.id} artUrl={song.artUrl} className="h-9 w-9 rounded-md" /> : null}
+          <div className="min-w-0 text-center">
+            <span dir="auto" className="block truncate font-medium">
+              {song?.title ?? "…"}
+            </span>
+            <span dir="auto" className="block truncate text-xs text-white/40">
+              {song?.artist}
+            </span>
+          </div>
         </div>
         {song ? <SongInfo song={song} loaded={loadedInfo} /> : null}
         <button
