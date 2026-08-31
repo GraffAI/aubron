@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { boundsAround, boundsOfPaths, type Focus, type Padding } from "./lib/camera";
+import { nearbyRoutes, nearestStopsOnLine, type NearbyStop } from "./lib/nearby";
 import { colorFor, LINE_COLORS, type RGBA } from "./lib/theme";
 import {
   framableByDirection,
@@ -17,7 +18,9 @@ import {
   type Vehicle,
 } from "./lib/transit";
 import { useReplay } from "./lib/replay";
+import { useGeolocation, type GeoState } from "./lib/useGeolocation";
 import { LineSelector } from "./line-selector";
+import { NearbyPanel } from "./nearby-panel";
 import { ReplayBar } from "./replay-bar";
 import { StationPanel } from "./station-panel";
 import { TripPanel } from "./trip-panel";
@@ -32,6 +35,12 @@ const rgba = ([r, g, b, a]: RGBA) => `rgba(${r},${g},${b},${(a ?? 255) / 255})`;
 
 const LINE_POLL_MS = 20_000;
 const BOARD_POLL_MS = 20_000;
+
+// A walkable ring around the rider. The hook only publishes a fix once it has
+// moved ~25m, so this refetches on real movement; the timer is just a floor under
+// a rider standing still while service around them changes.
+const NEARBY_RADIUS_M = 800;
+const NEARBY_POLL_MS = 45_000;
 
 // Live glides span one poll (~15s); at replay speed they compress to match, so
 // a 60× replay doesn't spend a quarter-hour easing into each frame.
@@ -84,6 +93,15 @@ export function MapStage() {
     setReplayName(/^[\w-]+$/.test(want) && want !== "1" && want !== "true" ? want : "replay");
   }, []);
   const replay = useReplay(replayName);
+
+  // Location awareness: opt-in, off until the rider taps the locate button — and
+  // off wholesale during a replay, which is a historical feed with no "here" in
+  // it. The URL is read on mount, well before any fix could land, so the watch
+  // never even starts on a replay page.
+  const geo = useGeolocation(!replayName);
+  const [nearStops, setNearStops] = useState<NearbyStop[]>([]);
+  const [nearLoading, setNearLoading] = useState(false);
+  const flewToUser = useRef(false);
 
   const flyTo = useCallback((focusInit: Omit<Focus, "nonce"> | null) => {
     if (!focusInit) return;
@@ -239,6 +257,70 @@ export function MapStage() {
     flyTo({ bounds, padding: STATION_PADDING, maxZoom: 14 });
   }, [board, stop, flyTo]);
 
+  // Frame the rider the first time a fix lands (and again on demand from the
+  // locate button) — same centered-box framing a station gets.
+  const userPosition = geo.position;
+  const flyToUser = useCallback(
+    (p: { lat: number; lon: number }) =>
+      flyTo({ bounds: boundsAround([p.lon, p.lat], []), padding: 90, maxZoom: 14.5 }),
+    [flyTo],
+  );
+
+  useEffect(() => {
+    if (!userPosition || replayName) {
+      flewToUser.current = false;
+      return;
+    }
+    if (flewToUser.current) return;
+    flewToUser.current = true;
+    flyToUser(userPosition);
+  }, [userPosition, replayName, flyToUser]);
+
+  // Stops around the rider. A replay is a historical feed, so "near you" has no
+  // meaning there — the whole feature sits out.
+  useEffect(() => {
+    if (!userPosition || replayName) {
+      setNearStops([]);
+      return;
+    }
+    let active = true;
+    const load = async () => {
+      setNearLoading(true);
+      try {
+        const r = await fetch(
+          `/api/nearby?lat=${userPosition.lat}&lon=${userPosition.lon}&radius=${NEARBY_RADIUS_M}`,
+        );
+        const j = (await r.json()) as { stops?: NearbyStop[] };
+        if (active && Array.isArray(j.stops)) setNearStops(j.stops);
+      } catch {
+        /* keep last */
+      } finally {
+        if (active) setNearLoading(false);
+      }
+    };
+    void load();
+    const id = setInterval(() => void load(), NEARBY_POLL_MS);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, [userPosition, replayName]);
+
+  // Only routes the app itself can drill into: OBA answers for every agency in
+  // range, and a tap on a Metro route would have nowhere to go.
+  const knownRoutes = useMemo(
+    () => new Map([...(net?.routes ?? []), ...(net?.busRoutes ?? [])].map((r) => [r.id, r])),
+    [net],
+  );
+  const nearRoutes = useMemo(
+    () => (userPosition ? nearbyRoutes(nearStops, userPosition, knownRoutes) : []),
+    [nearStops, userPosition, knownRoutes],
+  );
+  const nearOnLine = useMemo(
+    () => (line && userPosition ? nearestStopsOnLine(line.stops, userPosition, 3) : []),
+    [line, userPosition],
+  );
+
   const counts = useMemo(() => {
     const m = new Map<string, number>();
     for (const v of vehicles) m.set(v.shortName, (m.get(v.shortName) ?? 0) + 1);
@@ -274,6 +356,13 @@ export function MapStage() {
 
   const handleBuses = useCallback((b: Vehicle[]) => setBusCount(b.length), []);
 
+  // First tap asks the browser; every tap after that re-centers on the rider.
+  const locate = () => {
+    if (geo.state === "unavailable" || geo.state === "denied") return;
+    if (userPosition) flyToUser(userPosition);
+    else geo.start();
+  };
+
   const railRoutes = net?.routes ?? [];
   const busRoutes = net?.busRoutes ?? [];
   const liveOnLine = line
@@ -290,6 +379,7 @@ export function MapStage() {
         selectedLine={line}
         lineBusVehicles={lineBusVehicles}
         selectedStopId={stop?.id ?? null}
+        userPosition={replayName ? null : userPosition}
         focus={focus}
         replay={
           replay?.data ? { vehicles: replay.vehicles, tweenMs: replayTween(replay.speed) } : null
@@ -324,22 +414,43 @@ export function MapStage() {
             {liveOnLine} live · tap a station for arrivals
           </div>
         )}
+        {/* Nearby sits under the selector, and stands down whenever a bottom
+            sheet is up — on a phone they'd be fighting for the same screen. */}
+        {userPosition && !replay && !stop && !selected && (
+          <NearbyPanel
+            routes={nearRoutes}
+            line={line}
+            lineStops={nearOnLine}
+            // The catalog gates which routes can be listed at all, so until it
+            // lands the list is still loading — not empty.
+            loading={nearLoading || !net}
+            stale={geo.state === "error"}
+            onSelectRoute={selectLine}
+            onSelectStop={setStop}
+            onDisable={geo.stop}
+          />
+        )}
       </div>
 
       {/* top-right: overview filters (ambient view only) or focused toggles.
           On phones the stack folds behind a status pill so it can't collide
           with the selector; ≥sm it's always spread out. */}
       <div className="absolute right-[max(1.25rem,env(safe-area-inset-right))] top-[max(1.25rem,env(safe-area-inset-top))] flex select-none flex-col items-end text-right">
-        <button
-          type="button"
-          onClick={() => setControlsOpen((o) => !o)}
-          className="mb-2 flex items-center gap-2 rounded-lg border border-white/10 bg-black/55 px-2.5 py-2 backdrop-blur-md sm:hidden"
-        >
-          <span className="text-[10px] uppercase tracking-[0.2em] text-white/60">
-            {!line ? `${vehicles.length}${filter.buses ? `+${busCount}` : ""} live` : "filters"}
-          </span>
-          <span className="text-[10px] text-white/40">{controlsOpen ? "▴" : "▾"}</span>
-        </button>
+        {/* The locate button rides beside the status pill so it stays reachable
+            on a phone without opening the filter drawer. */}
+        <div className="mb-2 flex items-center gap-2">
+          {!replay && <LocateButton state={geo.state} active={!!userPosition} onClick={locate} />}
+          <button
+            type="button"
+            onClick={() => setControlsOpen((o) => !o)}
+            className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/55 px-2.5 py-2 backdrop-blur-md sm:hidden"
+          >
+            <span className="text-[10px] uppercase tracking-[0.2em] text-white/60">
+              {!line ? `${vehicles.length}${filter.buses ? `+${busCount}` : ""} live` : "filters"}
+            </span>
+            <span className="text-[10px] text-white/40">{controlsOpen ? "▴" : "▾"}</span>
+          </button>
+        </div>
         <div
           className={`${controlsOpen ? "flex" : "hidden"} flex-col items-end rounded-lg border border-white/10 bg-black/55 p-2 text-right backdrop-blur-md sm:flex sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none`}
         >
@@ -471,6 +582,61 @@ function DebugLegend() {
         </div>
       </div>
     </div>
+  );
+}
+
+const LOCATE_TITLE: Record<GeoState, string> = {
+  idle: "Show my location",
+  prompting: "Waiting for your location…",
+  active: "Center on me",
+  denied: "Location is blocked for this site — allow it in your browser settings",
+  unavailable: "This browser can't share a location",
+  error: "Location is unavailable right now — showing the last known fix",
+};
+
+/** Crosshair: off → dim, waiting → pulsing, live → azure (the map dot's color). */
+function LocateButton({
+  state,
+  active,
+  onClick,
+}: {
+  state: GeoState;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const blocked = state === "denied" || state === "unavailable";
+  const tone = blocked
+    ? "text-white/25"
+    : active
+      ? "text-[rgb(64,156,255)]"
+      : state === "error"
+        ? "text-amber-300/70"
+        : "text-white/60";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={LOCATE_TITLE[state]}
+      aria-label={LOCATE_TITLE[state]}
+      aria-pressed={active}
+      className={`grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-black/55 backdrop-blur-md transition hover:border-white/20 ${tone} ${
+        state === "prompting" ? "animate-pulse" : ""
+      }`}
+    >
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        aria-hidden="true"
+      >
+        <circle cx="12" cy="12" r="6.5" />
+        <path d="M12 1.5v3.5M12 19v3.5M1.5 12h3.5M19 12h3.5" strokeLinecap="round" />
+        <circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none" />
+      </svg>
+    </button>
   );
 }
 
