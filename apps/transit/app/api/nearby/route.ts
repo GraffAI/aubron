@@ -8,17 +8,25 @@ const MIN_RADIUS = 100;
 const MAX_RADIUS = 1500;
 const DEFAULT_RADIUS = 800;
 
+// A missing param must read as ABSENT, not as zero: Number(null) is 0, which is
+// finite — so a plain Number() would accept a lat-less request as (0, 0) and
+// silently clamp a radius-less one to the minimum instead of the default.
+function num(u: URL, k: string): number | null {
+  const raw = u.searchParams.get(k);
+  if (raw == null || raw.trim() === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 export async function GET(req: Request) {
   const u = new URL(req.url);
-  const lat = Number(u.searchParams.get("lat"));
-  const lon = Number(u.searchParams.get("lon"));
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+  const lat = num(u, "lat");
+  const lon = num(u, "lon");
+  if (lat == null || lon == null || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
     return Response.json({ error: "lat, lon required" }, { status: 400 });
   }
-  const asked = Number(u.searchParams.get("radius"));
-  const radius = Number.isFinite(asked)
-    ? Math.min(MAX_RADIUS, Math.max(MIN_RADIUS, asked))
-    : DEFAULT_RADIUS;
+  const asked = num(u, "radius");
+  const radius = asked == null ? DEFAULT_RADIUS : Math.min(MAX_RADIUS, Math.max(MIN_RADIUS, asked));
   try {
     const { stops, routes } = await getNearbyStops(lat, lon, radius);
     return Response.json({ stops, routes, radius, at: Date.now() });

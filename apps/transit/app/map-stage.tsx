@@ -75,12 +75,6 @@ export function MapStage() {
   const [board, setBoard] = useState<StopBoard | null>(null);
   const [boardLoading, setBoardLoading] = useState(false);
 
-  // Location awareness: opt-in, off until the rider taps the locate button.
-  const geo = useGeolocation();
-  const [nearStops, setNearStops] = useState<NearbyStop[]>([]);
-  const [nearLoading, setNearLoading] = useState(false);
-  const flewToUser = useRef(false);
-
   const [focus, setFocus] = useState<Focus | null>(null);
   // Mobile: the filter stack collapses behind a status pill (it would collide
   // with the line selector on a phone-width screen).
@@ -99,6 +93,15 @@ export function MapStage() {
     setReplayName(/^[\w-]+$/.test(want) && want !== "1" && want !== "true" ? want : "replay");
   }, []);
   const replay = useReplay(replayName);
+
+  // Location awareness: opt-in, off until the rider taps the locate button — and
+  // off wholesale during a replay, which is a historical feed with no "here" in
+  // it. The URL is read on mount, well before any fix could land, so the watch
+  // never even starts on a replay page.
+  const geo = useGeolocation(!replayName);
+  const [nearStops, setNearStops] = useState<NearbyStop[]>([]);
+  const [nearLoading, setNearLoading] = useState(false);
+  const flewToUser = useRef(false);
 
   const flyTo = useCallback((focusInit: Omit<Focus, "nonce"> | null) => {
     if (!focusInit) return;
@@ -264,14 +267,14 @@ export function MapStage() {
   );
 
   useEffect(() => {
-    if (!userPosition) {
+    if (!userPosition || replayName) {
       flewToUser.current = false;
       return;
     }
     if (flewToUser.current) return;
     flewToUser.current = true;
     flyToUser(userPosition);
-  }, [userPosition, flyToUser]);
+  }, [userPosition, replayName, flyToUser]);
 
   // Stops around the rider. A replay is a historical feed, so "near you" has no
   // meaning there — the whole feature sits out.
@@ -418,7 +421,9 @@ export function MapStage() {
             routes={nearRoutes}
             line={line}
             lineStops={nearOnLine}
-            loading={nearLoading}
+            // The catalog gates which routes can be listed at all, so until it
+            // lands the list is still loading — not empty.
+            loading={nearLoading || !net}
             stale={geo.state === "error"}
             onSelectRoute={selectLine}
             onSelectStop={setStop}

@@ -56,11 +56,18 @@ function wasEnabled(): boolean {
   }
 }
 
-export function useGeolocation(): Geolocation {
+/**
+ * `enabled` is the whole-feature switch (a replay owns the map, say): while it's
+ * false nothing resumes, and a watch already running is torn down — without
+ * forgetting the rider's opt-in, so leaving the replay picks it back up.
+ */
+export function useGeolocation(enabled = true): Geolocation {
   const [state, setState] = useState<GeoState>("idle");
   const [position, setPosition] = useState<GeoPosition | null>(null);
   const watchId = useRef<number | null>(null);
   const lastRef = useRef<GeoPosition | null>(null);
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
 
   const stop = useCallback(() => {
     if (watchId.current != null && typeof navigator !== "undefined") {
@@ -78,6 +85,7 @@ export function useGeolocation(): Geolocation {
       setState("unavailable");
       return;
     }
+    if (!enabledRef.current) return;
     if (watchId.current != null) return;
     setState("prompting");
     watchId.current = navigator.geolocation.watchPosition(
@@ -88,8 +96,10 @@ export function useGeolocation(): Geolocation {
           accuracy: p.coords.accuracy,
         };
         setState("active");
-        if (persist) remember(true);
         const last = lastRef.current;
+        // Once per watch, on the first fix — watchPosition can fire every second
+        // and localStorage writes are synchronous.
+        if (persist && !last) remember(true);
         const moved = !last || haversineMeters(last, next) > MOVE_THRESHOLD_M;
         const sharper = !!last && next.accuracy < last.accuracy * ACCURACY_GAIN;
         if (!moved && !sharper) return;
@@ -117,9 +127,21 @@ export function useGeolocation(): Geolocation {
   const start = useCallback(() => begin(true), [begin]);
 
   // Silent resume: only when the rider previously opted in and the browser
-  // already holds the grant, so nothing here can raise a prompt on load.
+  // already holds the grant, so nothing here can raise a prompt on load. And
+  // when the feature is switched off wholesale, drop any live watch rather than
+  // hold GPS open behind a map that isn't showing it.
   useEffect(() => {
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    if (!enabled) {
+      if (watchId.current != null) {
+        navigator.geolocation.clearWatch(watchId.current);
+        watchId.current = null;
+        lastRef.current = null;
+        setPosition(null);
+        setState("idle");
+      }
+      return; // keep the stored opt-in: this is a suspend, not a decision
+    }
     if (!wasEnabled()) return;
     let cancelled = false;
     void navigator.permissions
@@ -131,7 +153,7 @@ export function useGeolocation(): Geolocation {
     return () => {
       cancelled = true;
     };
-  }, [begin]);
+  }, [enabled, begin]);
 
   // Never leave a watch running behind an unmounted map.
   useEffect(() => {
