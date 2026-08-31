@@ -2,6 +2,7 @@
 // reaches the browser — the client talks to our /api/* route handlers, which
 // call these functions.
 
+import type { NearbyStop } from "./nearby";
 import {
   decodePolyline,
   isRailType,
@@ -673,4 +674,71 @@ export async function getAreaBuses(
   return [...byTrip.values()].filter(
     (v) => Math.abs(v.lat - lat) <= latPad && Math.abs(v.lon - lon) <= lonPad,
   );
+}
+
+interface ObaLocationStop extends ObaStop {
+  /** Route ids serving this stop — every agency in range, not just ours. */
+  routeIds?: string[];
+  /** Compass direction the stop serves ("N", "SW"); absent for some stops. */
+  direction?: string;
+}
+
+interface StopsForLocationResponse {
+  list: ObaLocationStop[];
+  references?: { routes?: ObaRoute[] };
+}
+
+export interface NearbyStops {
+  stops: NearbyStop[];
+  /**
+   * Route metadata for everything in range, including agencies outside our
+   * catalog — the client still filters to what it can drill into, but this lets
+   * it name a route it doesn't otherwise know.
+   */
+  routes: RouteInfo[];
+}
+
+/** Map a stops-for-location payload to our shapes. Pure — the tested half. */
+export function nearbyStopsFromResponse(data: StopsForLocationResponse): NearbyStops {
+  const stops: NearbyStop[] = (data.list ?? []).map((s) => ({
+    id: s.id,
+    name: s.name,
+    lat: s.lat,
+    lon: s.lon,
+    routeIds: s.routeIds ?? [],
+    direction: s.direction || undefined,
+  }));
+  return { stops, routes: (data.references?.routes ?? []).map(toRouteInfo) };
+}
+
+// watchPosition fires on GPS jitter of a few meters, and the set of stops around
+// a rider doesn't change at that scale. Round the query to ~110 m and hold the
+// answer briefly so a walking rider costs OBA one call, not one per fix.
+const NEARBY_TTL_MS = 45_000;
+const nearbyCache = new Map<string, { at: number; data: Promise<NearbyStops> }>();
+
+/** Stops within `radius` meters of a point, with the routes that serve them. */
+export function getNearbyStops(lat: number, lon: number, radius: number): Promise<NearbyStops> {
+  const rLat = lat.toFixed(3);
+  const rLon = lon.toFixed(3);
+  const cacheKey = `${rLat},${rLon},${radius}`;
+  const now = Date.now();
+  const hit = nearbyCache.get(cacheKey);
+  if (hit && now - hit.at < NEARBY_TTL_MS) return hit.data;
+
+  const data = obaGet<StopsForLocationResponse>("stops-for-location", {
+    lat: rLat,
+    lon: rLon,
+    radius: String(Math.round(radius)),
+  }).then(nearbyStopsFromResponse);
+
+  nearbyCache.set(cacheKey, { at: now, data });
+  // Don't serve a failure for the whole TTL, and don't let the map grow forever.
+  data.catch(() => nearbyCache.delete(cacheKey));
+  if (nearbyCache.size > 64) {
+    for (const [k, v] of nearbyCache) {
+      if (now - v.at >= NEARBY_TTL_MS) nearbyCache.delete(k);
+    }
+  }
+  return data;
 }

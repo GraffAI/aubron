@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { dedupeStops } from "./oba";
+import { dedupeStops, nearbyStopsFromResponse } from "./oba";
 
 // Shapes from the real feed prove the parent linkage; here we mirror its structure:
 // a parent stop (parent: "") plus child platforms that point back to it.
@@ -58,5 +58,58 @@ describe("dedupeStops", () => {
     );
     expect(out[0]!.lat).toBeCloseTo(47.6, 4);
     expect(out[0]!.lon).toBeCloseTo(-122.19, 4);
+  });
+});
+
+// Shaped like a real stops-for-location payload: stops carry their own routeIds
+// (across agencies), and route metadata rides along in references.
+describe("nearbyStopsFromResponse", () => {
+  const payload = {
+    list: [
+      {
+        id: "40_990005",
+        name: "Westlake Station",
+        lat: 47.61152,
+        lon: -122.33726,
+        routeIds: ["40_100479", "1_100512"],
+        direction: "N",
+      },
+      {
+        id: "1_577",
+        name: "3rd Ave & Pine St",
+        lat: 47.6112,
+        lon: -122.3381,
+        routeIds: ["1_100512"],
+        direction: "",
+      },
+      { id: "40_1234", name: "No routes listed", lat: 47.61, lon: -122.33 },
+    ],
+    references: {
+      routes: [
+        { id: "40_100479", shortName: "1 Line", longName: "Link", type: 0, color: "00A94F" },
+        { id: "1_100512", shortName: "", longName: "Link light rail", type: 0, color: "" },
+      ],
+    },
+  };
+
+  it("maps stops with their routeIds and drops an empty direction", () => {
+    const { stops } = nearbyStopsFromResponse(payload);
+    expect(stops).toHaveLength(3);
+    expect(stops[0]!.routeIds).toEqual(["40_100479", "1_100512"]);
+    expect(stops[0]!.direction).toBe("N");
+    expect(stops[1]!.direction).toBeUndefined();
+    expect(stops[2]!.routeIds).toEqual([]);
+  });
+
+  it("builds route metadata with mode and color", () => {
+    const { routes } = nearbyStopsFromResponse(payload);
+    expect(routes[0]).toMatchObject({ shortName: "1 Line", mode: "light-rail", color: "00A94F" });
+    // An empty shortName falls back to the long name, and "" is not a color.
+    expect(routes[1]!.shortName).toBe("Link light rail");
+    expect(routes[1]!.color).toBeUndefined();
+  });
+
+  it("survives a payload with nothing in it", () => {
+    expect(nearbyStopsFromResponse({ list: [] })).toEqual({ stops: [], routes: [] });
   });
 });

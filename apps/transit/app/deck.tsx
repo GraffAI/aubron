@@ -82,6 +82,8 @@ interface Props {
   lineBusVehicles: Vehicle[];
   /** Currently opened station, highlighted on the map. */
   selectedStopId: string | null;
+  /** The rider's own position, once they've turned location on. */
+  userPosition: { lat: number; lon: number; accuracy: number } | null;
   /** Camera target; a new nonce re-triggers the fly even to the same place. */
   focus: Focus | null;
   /**
@@ -108,6 +110,7 @@ export function TransitDeck({
   selectedLine,
   lineBusVehicles,
   selectedStopId,
+  userPosition,
   focus,
   replay,
   onVehicles,
@@ -445,6 +448,44 @@ export function TransitDeck({
     ];
   }, [selectedLine, selectedStopId, onSelectStop]);
 
+  // The rider, drawn the way every map draws them: a ground-truth accuracy disc
+  // in real meters (so it shrinks as the fix sharpens and grows when it doesn't),
+  // then a fixed-pixel dot with a white ring that stays legible at any zoom.
+  // Never pickable — it's a reference point, not a thing to tap.
+  const userLayers = useMemo(() => {
+    if (!userPosition) return [];
+    const at: [number, number] = [userPosition.lon, userPosition.lat];
+    const accuracy = Math.min(400, Math.max(15, userPosition.accuracy || 0));
+    return [
+      new ScatterplotLayer({
+        id: "user-accuracy",
+        data: [userPosition],
+        getPosition: () => at,
+        getRadius: accuracy,
+        radiusUnits: "meters",
+        getFillColor: COLORS.userAccuracy,
+        stroked: true,
+        getLineColor: COLORS.userAccuracyEdge,
+        lineWidthUnits: "pixels",
+        getLineWidth: 1,
+        pickable: false,
+      }),
+      new ScatterplotLayer({
+        id: "user-dot",
+        data: [userPosition],
+        getPosition: () => at,
+        getRadius: 6,
+        radiusUnits: "pixels",
+        getFillColor: COLORS.userDot,
+        stroked: true,
+        getLineColor: [255, 255, 255, 235],
+        lineWidthUnits: "pixels",
+        getLineWidth: 2,
+        pickable: false,
+      }),
+    ];
+  }, [userPosition]);
+
   const selectVehicle = (info: PickingInfo<Vehicle>) => {
     onSelect?.(info.object ?? null);
     return true;
@@ -667,6 +708,7 @@ export function TransitDeck({
         ...baseLayers,
         ...overviewRouteLayers,
         ...lineLayers,
+        ...userLayers,
         ...vehicleLayers,
         ...debugLayers,
       ]}

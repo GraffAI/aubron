@@ -16,6 +16,11 @@ export const COLORS = {
   // edge crisps it against the line so it reads at every zoom.
   markerCore: [237, 244, 252, 255] as RGBA,
   markerEdge: [4, 7, 11, 235] as RGBA,
+  // "You are here" — a deliberate azure that no Sound Transit line uses, so the
+  // rider's own dot can never be mistaken for a train.
+  userDot: [64, 156, 255, 255] as RGBA,
+  userAccuracy: [64, 156, 255, 28] as RGBA,
+  userAccuracyEdge: [64, 156, 255, 70] as RGBA,
 } as const;
 
 /** Official-ish Sound Transit line colors, brightened for the dark map. */
