@@ -9,3 +9,7 @@ pnpm-lock.yaml
 # Template markdown uses __PLACEHOLDER__ tokens, which Prettier would rewrite as
 # bold (**PLACEHOLDER**). Keep templates verbatim so gen.ts can substitute them.
 scripts/templates/**/*.md
+
+# Vendored third-party code is kept byte-for-byte with upstream so future diffs
+# stay clean — don't reformat it to our style.
+vendor/
